@@ -55,5 +55,3 @@ make k8s-populate
 make k8s-port-forward
 ```
 
-## 📜 License
-This project is licensed under the MIT License - see the LICENSE file for details.
