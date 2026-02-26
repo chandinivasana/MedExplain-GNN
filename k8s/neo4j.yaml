@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j
+  namespace: medexplain-gnn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      enableServiceLinks: false
+      containers:
+      - name: neo4j
+        image: neo4j:5.17.0
+        ports:
+        - containerPort: 7474
+        - containerPort: 7687
+        env:
+        - name: NEO4J_AUTH
+          value: "neo4j/password"
+        - name: NEO4J_dbms_memory_heap_initial__size
+          value: "512m"
+        - name: NEO4J_dbms_memory_heap_max__size
+          value: "1G"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-db
+  namespace: medexplain-gnn
+spec:
+  selector:
+    app: neo4j
+  ports:
+    - protocol: TCP
+      port: 7474
+      targetPort: 7474
+      name: http
+    - protocol: TCP
+      port: 7687
+      targetPort: 7687
+      name: bolt

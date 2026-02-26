@@ -1,0 +1,8 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+pydantic==2.6.1
+torch==2.2.0
+torch-geometric==2.4.0
+transformers==4.37.2
+neo4j==5.17.0
+redis==5.0.1

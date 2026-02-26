@@ -1,0 +1,61 @@
+services:
+  neo4j:
+    image: neo4j:5.17.0
+    container_name: neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=1G
+
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=medexplain_logs
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+  ai-service:
+    build: ./ai_engine
+    container_name: ai-service
+    ports:
+      - "8001:8001"
+    depends_on:
+      - neo4j
+      - redis
+    volumes:
+      - ./database:/app/database
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+      - REDIS_URL=redis://redis:6379/0
+
+  backend:
+    build: ./backend
+    container_name: medexplain-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - ai-service
+      - mongodb
+    environment:
+      - AI_SERVICE_URL=http://ai-service:8001
+      - MONGO_URI=mongodb://mongodb:27017/medexplain_logs
+
+  frontend:
+    build: ./frontend
+    container_name: medexplain-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
