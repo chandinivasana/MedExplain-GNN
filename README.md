@@ -2,7 +2,7 @@
 
 **MedExplain-GNN** is an end-to-end, graph-based medical reasoning engine designed to move beyond "black-box" AI. It translates unstructured user symptom descriptions into precise medical predictions and provides contextual dietary precautions based on biological interactions.
 
-## 🚀 Key Features
+##  Key Features
 
 -   **Explainable Graph Reasoning:** Powered by **Graph Convolutional Networks (GCN)** using **PyTorch Geometric** for disease prediction from symptom node neighborhoods.
 -   **Medical NER Pipeline:** Utilizes **BioBERT** for extracting exact symptoms and medical entities from raw text.
@@ -11,7 +11,7 @@
 -   **Production-Ready DevOps:** Containerized with **Docker** and orchestrated via **Kubernetes (K8s)** with automated health probes and persistent logging in **MongoDB**.
 -   **Asynchronous Processing:** Integrated with **Redis** for efficient message passing between services.
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 -   **Frontend:** Next.js (TypeScript, Tailwind CSS)
 -   **Backend:** FastAPI (Python)
@@ -19,7 +19,7 @@
 -   **Databases:** Neo4j (Graph), MongoDB (NoSQL Logs), Redis (Cache/Queue)
 -   **Infrastructure:** Docker, Kubernetes (Minikube/Kind), Makefile
 
-## 🏗️ Architecture
+##  Architecture
 
 1.  **Symptom Ingestion:** Users input descriptions into the Next.js interface.
 2.  **Entity Extraction:** FastAPI forwards text to the AI Engine where BioBERT extracts symptom entities.
@@ -27,7 +27,7 @@
 4.  **Explainability:** The system queries Neo4j for nodes connected to the predicted disease via the `[:CONTRAINDICATED]` edge.
 5.  **Output:** The user receives a prediction, a detailed explanation, and a list of foods to avoid.
 
-## 🚦 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Docker & Docker Compose
