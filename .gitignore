@@ -31,7 +31,6 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
-ai_engine/populate_graph.py
 
 # Node.js
 node_modules/
