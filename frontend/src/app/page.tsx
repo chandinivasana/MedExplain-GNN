@@ -20,6 +20,19 @@ export default function Home() {
     }
   };
 
+  const deleteHistoryItem = async (logId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/history/${logId}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        fetchHistory();
+      }
+    } catch (error) {
+      console.error('Error deleting history item:', error);
+    }
+  };
+
   useEffect(() => {
     fetchHistory();
   }, []);
@@ -97,8 +110,15 @@ export default function Home() {
         ) : (
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
             {history.map((item, index) => (
-              <div key={item._id || index} className="p-4 border rounded-md bg-gray-50 flex flex-col gap-2">
-                <p className="text-sm text-gray-800 italic line-clamp-2">"{item.input_text}"</p>
+              <div key={item._id || index} className="p-4 border rounded-md bg-gray-50 flex flex-col gap-2 relative group">
+                <button
+                  onClick={() => deleteHistoryItem(item._id)}
+                  className="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Delete entry"
+                >
+                  ✕
+                </button>
+                <p className="text-sm text-gray-800 italic line-clamp-2 pr-4">"{item.input_text}"</p>
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-red-600">{item.prediction.disease}</span>
                   <span className="text-xs text-gray-500">

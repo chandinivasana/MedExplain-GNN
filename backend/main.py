@@ -5,6 +5,7 @@ import httpx
 import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime
+from bson import ObjectId
 
 app = FastAPI(title="MedExplain-GNN Gateway")
 
@@ -64,6 +65,17 @@ async def get_history():
         return logs
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Error fetching history: {str(exc)}")
+
+@app.delete("/history/{log_id}")
+async def delete_history_item(log_id: str):
+    try:
+        result = await logs_collection.delete_one({"_id": ObjectId(log_id)})
+        if result.deleted_count == 1:
+            return {"message": "Log deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Log not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error deleting history: {str(exc)}")
 
 if __name__ == "__main__":
     import uvicorn
