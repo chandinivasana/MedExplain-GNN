@@ -16,8 +16,8 @@ export default function Footer() {
 
         {/* Center: Links */}
         <div className="flex items-center gap-8">
-          {["API Docs", "Research", "Contribute"].map(link => (
-            <a key={link} href="#" className="font-dm-sans text-[13px] text-muted hover:text-accent-lime transition-colors">
+          {["Demo", "Architecture"].map(link => (
+            <a key={link} href={`#${link.toLowerCase()}`} className="font-dm-sans text-[13px] text-muted hover:text-accent-lime transition-colors">
               {link}
             </a>
           ))}

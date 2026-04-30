@@ -16,17 +16,15 @@ export default function Navbar() {
 
         {/* Center: Links */}
         <div className="hidden md:flex items-center gap-8">
-          {["Demo", "Architecture", "Research", "API Docs"].map((link) => (
+          {["Demo", "Architecture"].map((link) => (
             <a key={link} href={`#${link.toLowerCase()}`} className="font-dm-sans text-sm text-muted hover:text-accent-lime transition-colors">
               {link}
             </a>
           ))}
         </div>
 
-        {/* Right: CTA */}
-        <button className="bg-accent-lime text-background font-syne font-bold text-[13px] px-[22px] py-[10px] rounded-full hover:brightness-110 transition-all">
-          Get Access ↗
-        </button>
+        {/* Right: Empty for balance or could add social/github */}
+        <div className="w-[120px] hidden md:block"></div>
       </div>
     </nav>
   );
