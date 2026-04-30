@@ -75,7 +75,7 @@ export default function Pipeline() {
               </p>
               
               {i < steps.length - 1 && (
-                <div className="hidden md:block absolute top-[26px] left-[calc(20%*${i}+40px)] w-[calc(20%-80px)] h-[1px] bg-muted/20">
+                <div className={`hidden md:block absolute top-[26px] left-[calc(20%*${i}+40px)] w-[calc(20%-80px)] h-[1px] bg-muted/20`}>
                   <span className="absolute right-0 top-1/2 -translate-y-1/2 text-muted/30 text-[10px]">→</span>
                 </div>
               )}
