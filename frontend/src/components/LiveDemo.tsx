@@ -123,13 +123,13 @@ export default function LiveDemo() {
               
               <div className="mt-6 space-y-4">
                 {[
-                  { label: "GNN Confidence", value: result.confidence * 100 },
+                  { label: "GNN Confidence", value: (result?.confidence ?? 0) * 100 },
                   { label: "Symptom Match", value: 88 },
                 ].map((bar, i) => (
                   <div key={i}>
                     <div className="flex justify-between text-[11px] font-medium text-muted mb-1.5">
                       <span>{bar.label}</span>
-                      <span>{bar.value.toFixed(1)}%</span>
+                      <span>{bar.value?.toFixed(1) ?? "0.0"}%</span>
                     </div>
                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                       <div 
@@ -145,7 +145,7 @@ export default function LiveDemo() {
             <div className="p-6 bg-background/40 rounded-xl border border-accent-lime/10">
               <span className="block text-[10px] font-bold text-accent-lime uppercase mb-3 tracking-wider">GNN Explanation</span>
               <p className="font-dm-sans text-[12px] text-muted leading-relaxed italic">
-                {result.explanation}
+                {result?.explanation ?? "No explanation provided."}
               </p>
             </div>
           </div>
@@ -157,11 +157,14 @@ export default function LiveDemo() {
             </span>
             
             <div className="flex flex-wrap gap-2 mb-8">
-              {result.dietary_precautions.map((food: string, i: number) => (
+              {(result?.dietary_precautions ?? []).map((food: string, i: number) => (
                 <div key={i} className="px-3 py-1.5 bg-danger/10 border border-danger/30 rounded-full text-[11px] text-danger/80 flex items-center gap-1.5">
                   <span className="opacity-60">×</span> {food}
                 </div>
               ))}
+              {(!result?.dietary_precautions || result.dietary_precautions.length === 0) && (
+                <span className="text-[12px] text-muted italic">No specific dietary contraindications found.</span>
+              )}
             </div>
 
             <div className="mt-auto">
