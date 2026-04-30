@@ -38,12 +38,6 @@ export default function TechStack() {
           </div>
         ))}
       </div>
-
-      <div className="flex justify-center">
-        <button className="h-12 px-10 bg-accent-lime text-background font-syne font-bold rounded-full hover:brightness-110 transition-all shadow-[0_0_20px_rgba(168,255,62,0.15)]">
-          🚀 Generate Infrastructure Code
-        </button>
-      </div>
     </section>
   );
 }
