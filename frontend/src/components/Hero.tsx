@@ -35,13 +35,14 @@ export default function Hero() {
 
         {/* Buttons */}
         <div className="flex items-center gap-4 mb-16">
-          <a href="#demo" className="h-12 px-8 bg-accent-lime text-background font-syne font-bold rounded-full hover:brightness-110 transition-all flex items-center justify-center">
-            ⚡ Try the Engine
+          <a href="#demo" className="h-12 px-10 bg-accent-lime text-background font-syne font-bold rounded-full hover:brightness-110 hover:shadow-[0_0_20px_rgba(168,255,62,0.3)] transition-all flex items-center justify-center tracking-wide">
+            Try the Engine
           </a>
           <a href="#architecture" className="h-12 px-8 border border-white/15 text-white font-syne font-bold rounded-full hover:bg-white/5 transition-all flex items-center justify-center">
-            ◎ View Architecture
+            View Architecture
           </a>
         </div>
+
 
         {/* Stats Bar */}
         <div className="w-full max-w-[900px] grid grid-cols-2 md:grid-cols-4 bg-card border border-accent-lime/12 rounded-2xl overflow-hidden divide-x divide-accent-lime/12">
