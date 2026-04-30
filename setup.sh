@@ -14,7 +14,7 @@ done
 
 echo "--- Populating the Knowledge Graph ---"
 # Run population inside the container to ensure drivers are present
-docker exec ai-service python database/populate_graph.py
+docker exec ai-service python populate_graph_v2.py
 
 echo "--- Setup complete! ---"
 echo "Frontend: http://localhost:3000"

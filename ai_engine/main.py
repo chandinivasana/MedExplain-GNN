@@ -23,19 +23,21 @@ async def health_check():
 
 @app.post("/process")
 async def process_request(input: SymptomInput):
+    # 1. Advanced NER Extraction
     symptoms = extractor.extract(input.text)
     if not symptoms:
-        raise HTTPException(status_code=400, detail="No symptoms detected.")
+        raise HTTPException(status_code=400, detail="No recognized medical symptoms detected in the text.")
     
-    disease, confidence = get_disease_prediction(symptoms)
-    # In a real app, this would query Neo4j for dietary_precautions
-    # Mocking for logic flow:
-    dietary_precautions = ["Avoid sugary foods"] if "Influenza" in disease else ["Avoid salty foods"]
+    # 2. PyTorch Geometric Inference
+    top_disease, top_conf, all_predictions, dietary_precautions = get_disease_prediction(symptoms)
+    
+    # 3. Build Explainability String
+    explanation = f"Detected symptoms via BioBERT: {', '.join(symptoms)}. GNN Top Matches: " + ", ".join([f"{d} ({c*100:.1f}%)" for d, c in all_predictions])
     
     return PredictionResult(
-        disease=disease,
-        confidence=confidence,
-        explanation=f"Based on detected symptoms: {', '.join(symptoms)}.",
+        disease=top_disease,
+        confidence=top_conf,
+        explanation=explanation,
         dietary_precautions=dietary_precautions
     )
 
