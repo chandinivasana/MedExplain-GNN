@@ -16,6 +16,7 @@ class PredictionResult(BaseModel):
     confidence: float
     explanation: str
     dietary_precautions: List[str]
+    cypher_query: str
 
 @app.get("/")
 async def health_check():
@@ -34,11 +35,15 @@ async def process_request(input: SymptomInput):
     # 3. Build Explainability String
     explanation = f"Detected symptoms via BioBERT: {', '.join(symptoms)}. GNN Top Matches: " + ", ".join([f"{d} ({c*100:.1f}%)" for d, c in all_predictions])
     
+    # Cypher query used for dietary precautions
+    cypher_query = f"MATCH (d:Disease {{name: '{top_disease}'}})-[:CONTRAINDICATED]->(f:Food) RETURN f.name AS food, f.reason AS reason"
+    
     return PredictionResult(
         disease=top_disease,
         confidence=top_conf,
         explanation=explanation,
-        dietary_precautions=dietary_precautions
+        dietary_precautions=dietary_precautions,
+        cypher_query=cypher_query
     )
 
 if __name__ == "__main__":

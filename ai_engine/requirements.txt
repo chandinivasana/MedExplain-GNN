@@ -6,3 +6,4 @@ torch-geometric==2.4.0
 transformers==4.37.2
 neo4j==5.17.0
 redis==5.0.1
+numpy<2.0.0

@@ -6,10 +6,12 @@ export default function LiveDemo() {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [showCypher, setShowCypher] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setShowCypher(false);
     try {
       const response = await fetch('http://localhost:8000/predict-disease', {
         method: 'POST',
@@ -171,8 +173,18 @@ export default function LiveDemo() {
               <p className="text-[12px] text-muted mb-4">
                 Analysis based on <span className="text-accent-teal">[:CONTRAINDICATED]</span> edges in the Knowledge Graph for <span className="text-accent-lime">{result.disease}</span>.
               </p>
-              <button className="w-full py-3 border border-accent-lime/20 text-accent-lime font-syne font-bold text-[12px] rounded-lg hover:bg-accent-lime/5 transition-all">
-                View Cypher Query ↗
+              
+              {showCypher && (
+                <div className="mb-4 p-3 bg-background/80 rounded border border-accent-teal/20 font-mono text-[10px] text-accent-teal break-all animate-in fade-in zoom-in-95">
+                  {result.cypher_query}
+                </div>
+              )}
+
+              <button 
+                onClick={() => setShowCypher(!showCypher)}
+                className="w-full py-3 border border-accent-lime/20 text-accent-lime font-syne font-bold text-[12px] rounded-lg hover:bg-accent-lime/5 transition-all"
+              >
+                {showCypher ? "Hide Cypher Query" : "View Cypher Query ↗"}
               </button>
             </div>
           </div>
