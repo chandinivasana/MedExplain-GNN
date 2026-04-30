@@ -120,14 +120,20 @@ class GNNInferenceEngine:
         with torch.no_grad():
             out = self.model(x, self.edge_index)
             
-        # Extract Log Softmax for diseases and calculate probabilities
+        # Extract probabilities for the disease nodes
+        # disease_out has shape [num_diseases, num_diseases]
         disease_out = out[num_symptoms:]
         probs = torch.exp(disease_out)
         
+        # We want the confidence of each disease node being its respective class
+        # This is effectively the diagonal of the probability matrix
+        disease_confidences = probs.diag()
+        
         # Return Top 3 predicted diseases
-        top_probs, top_indices = torch.topk(probs, k=min(3, num_diseases))
+        top_probs, top_indices = torch.topk(disease_confidences, k=min(3, num_diseases))
         predictions = []
         for p, idx in zip(top_probs, top_indices):
+            # p and idx are now scalars (0-d tensors)
             predictions.append((self.reverse_disease_mapping[idx.item()], p.item()))
             
         top_disease = predictions[0][0]

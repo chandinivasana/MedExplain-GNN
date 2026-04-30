@@ -2,14 +2,9 @@ from transformers import pipeline
 
 class SymptomExtractor:
     def __init__(self, model_name="d4data/biomedical-ner-all"):
-        try:
-            # Load a robust biomedical NER model via HuggingFace
-            # aggregation_strategy="simple" merges sub-tokens into complete entities
-            self.nlp = pipeline("ner", model=model_name, aggregation_strategy="simple")
-            print("Successfully loaded BioBERT NER pipeline.")
-        except Exception as e:
-            print(f"Warning: Could not load BioBERT NER model. Using heuristic fallback. Error: {e}")
-            self.nlp = None
+        # Temporarily disabled BioBERT to prevent service hang in local environment
+        self.nlp = None
+        print("Using heuristic medical symptom extractor.")
             
         # A comprehensive dictionary of 100+ symptoms matching our synthetic dataset
         self.common_symptoms = [
