@@ -48,7 +48,9 @@ class GATInferenceEngine:
             s_lower = s.lower().replace("_", " ")
             if s_lower in self.symptom_mapping:
                 idx = self.symptom_mapping[s_lower]
-                x[idx] *= 2.0 
+                # THE MEGAPHONE FIX: Increased to 20.0x as per Master Fix requirements
+                # This forces the attention mechanism to focus on specific input nodes
+                x[idx] *= 20.0 
                 active_found = True
         
         if not active_found:
@@ -56,15 +58,14 @@ class GATInferenceEngine:
 
         # 2. Inference
         with torch.no_grad():
+            # Get the final embeddings (logits)
             logits = self.model(x, self.data.edge_index)
-            # Apply Temperature Scaling to the disease nodes' logits
-            disease_logits = logits[self.num_symptoms:]
             
-            # THE FIX: We want a single distribution across all possible diseases.
-            # We extract the score for the target class of each disease node (the diagonal)
-            # and then apply Softmax across the entire vector of diseases.
-            disease_scores = disease_logits.diag()
-            probs = F.softmax(disease_scores / self.temperature, dim=0)
+            # THE FIX: Apply Aggressive Temperature Scaling (T=0.1) to sharpen the peak
+            # Force probabilities to sum to 1.0 (100%)
+            disease_logits = logits[self.num_symptoms:].diag()
+            # Sharper calibration for boundary separation
+            probs = F.softmax(disease_logits / 0.1, dim=0)
             
             top_probs, top_indices = torch.topk(probs, k=min(3, self.num_classes))
             

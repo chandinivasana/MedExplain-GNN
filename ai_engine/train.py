@@ -37,17 +37,34 @@ def train():
         data = torch.load('ai_engine/graph_data.pt')
 
     data = data.to(device)
+    
+    # --- FIX 3: CLASS WEIGHTS (NEGATIVE SAMPLING ALTERNATIVE) ---
+    # Calculate degree of each disease node to identify hubs
+    disease_indices = range(data.num_symptoms, data.num_symptoms + data.num_classes)
+    degrees = torch.zeros(data.num_classes, device=device)
+    for i in range(data.edge_index.size(1)):
+        tgt = data.edge_index[1, i].item()
+        if tgt in disease_indices:
+            degrees[tgt - data.num_symptoms] += 1
+    
+    # Penalize high-degree hubs (like Asthma/Hypertension)
+    # Weights are inverse of degree to reward rare/specific connections
+    weights = 1.0 / (degrees + 1e-6)
+    weights = weights / weights.sum() * data.num_classes # Normalize
+    
     model = MedicalGAT(num_node_features=data.x.size(1), hidden_channels=64, num_classes=data.num_classes).to(device)
     # THE FIX: Added weight_decay to stabilize attention weights and studies the graph longer
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
+    # THE FIX: Using CrossEntropyLoss with weights to penalize over-predicting hubs
+    criterion = torch.nn.CrossEntropyLoss(weight=weights)
     early_stopping = EarlyStopping(patience=30) # Increased patience for longer training
 
     model.train()
     for epoch in range(500): # Increased from 200 to 500
         optimizer.zero_grad()
         out = model(data.x, data.edge_index)
-        # Using NLLLoss as the model output is log_softmax
-        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+        # Using CrossEntropyLoss for multi-class node classification
+        loss = criterion(out[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()
 

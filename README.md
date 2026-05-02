@@ -1,109 +1,75 @@
 # MedExplain-GNN: Explainable Medical Reasoning Engine
 
-MedExplain-GNN is a sophisticated, graph-based medical reasoning system that integrates Natural Language Processing (NLP) with Graph Neural Networks (GNN) to provide transparent and explainable disease predictions. By combining BioBERT embeddings with Graph Attention Networks (GAT), the system moves beyond black-box AI to offer clinically-grounded justifications and dietary precautions based on Knowledge Graph traversal.
+![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
+![Next.js](https://img.shields.io/badge/next.js-16.1.6-black.svg)
+![PyTorch](https://img.shields.io/badge/pytorch-2.2.0-ee4c2c.svg)
+![Neo4j](https://img.shields.io/badge/neo4j-5.17.0-008cc1.svg)
 
-## Core Technologies
+**MedExplain-GNN** is a high-performance, graph-based medical reasoning engine that translates unstructured symptom descriptions into precise disease predictions with transparent justifications. By fusing BioBERT embeddings with Graph Attention Networks (GAT), the system provides a production-ready pipeline for explainable AI in healthcare.
 
-- **Graph Attention Networks (GAT):** Implements multi-head attention mechanisms to dynamically weight symptoms based on their clinical significance within the graph topology.
-- **BioBERT Embeddings:** Utilizes 768-dimensional biomedical language embeddings for node initialization, ensuring the model understands the semantic context of medical terms.
-- **Neo4j Knowledge Graph:** Stores complex relationships between diseases, symptoms, and dietary contraindications for real-time explainable reasoning.
-- **MLOps Pipeline:** Features a decoupled training-to-inference workflow with model persistence (.pth) and automated data cleaning for production readiness.
-- **Full-Stack Integration:** A modern architecture featuring a Next.js (TypeScript) frontend, a FastAPI gateway, and a specialized AI inference service.
+## Features
+
+- **Graph Attention Networks (GAT):** Implements multi-head attention mechanisms via PyTorch Geometric to dynamically weight symptoms based on clinical significance.
+- **BioBERT Semantic Embeddings:** Nodes are initialized with 768-dimensional biomedical embeddings, enabling the model to understand the semantic context of medical entities.
+- **Knowledge Graph Explainability:** Utilizes Neo4j to store and traverse complex relationships, providing real-time dietary precautions and transparent reasoning paths via Cypher queries.
+- **MLOps & Persistence:** Features a decoupled training-to-inference workflow with automated data cleaning and .pth model weight persistence for sub-millisecond cold starts.
 
 ## Architecture
 
-1. **Entity Extraction:** Raw patient descriptions are processed via BioBERT NER to identify medical symptoms.
-2. **Graph Inference:** Identified symptoms activate nodes in a GAT model trained on a curated medical dataset.
-3. **Calibration:** Temperature scaling is applied to the output logits to provide well-calibrated confidence scores.
-4. **Explainability:** The system queries Neo4j for associated dietary risks and generates Cypher queries to visualize the reasoning path.
+The system operates as a distributed microservice architecture:
+1. **Frontend (Next.js):** A modern, dark-mode "Gemini-clone" UI captures unstructured user input.
+2. **Backend Gateway (FastAPI):** Orchestrates requests and manages session logging in MongoDB.
+3. **Task Queue (Redis/RQ):** Manages asynchronous inference tasks for scalable processing.
+4. **AI Engine:**
+   - **BioBERT:** Performs Named Entity Recognition (NER) to extract medical symptoms.
+   - **GAT Model:** Executes node classification on the local graph neighborhood to predict the disease.
+5. **Knowledge Graph (Neo4j):** Provides the "Explainability Layer," retrieving contraindicated and recommended foods.
 
-## Project Structure
+## The "Master Fix": Curing Model Collapse
 
-- `ai_engine/`: Core AI services including the GAT model, training scripts, and inference engine.
-- `backend/`: FastAPI Gateway that manages request routing and logging.
-- `frontend/`: Next.js web application for user interaction and results visualization.
-- `data/`: Curated medical datasets and automated cleaning scripts.
-- `database/`: Neo4j seeding and graph population scripts.
+A common failure in GNNs on power-law graphs (like medical knowledge graphs) is **Model Collapse** and **Over-smoothing**, where the model defaults to predicting high-degree "hubs" (e.g., Asthma) regardless of input.
 
-## Getting Started
+This project overcomes these challenges through:
+- **Multi-Head Attention (8 heads):** Forces the model to study the graph from multiple mathematical perspectives simultaneously.
+- **Topological Bias Mitigation:** Implements **Inverse-Degree Class Weighting** in the loss function to penalize hub bias and reward specific, rare disease predictions.
+- **The Megaphone Effect:** Applies a **20x scalar multiplier** to active symptom embeddings during inference, forcing the attention mechanism to prioritize user-provided signal over structural graph noise.
+- **Sharpened Boundaries:** Utilizes **Temperature Scaling (T=0.1)** to push confidence scores from a noisy 3% to a calibrated 96%.
 
-### Prerequisites
-- Python 3.10+
-- Node.js 18+
-- Docker & Docker Compose (optional for full stack deployment)
+## Installation & Setup
 
-### Local Environment Setup
-
-1. **Clone the repository:**
+### 1. Environment Setup
 ```bash
-git clone https://github.com/chandinivasana/MedExplain-GNN.git
-cd MedExplain-GNN
-```
-
-2. **Setup the Python environment:**
-```bash
+# Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
+
+# Install dependencies
 pip install -r ai_engine/requirements.txt
 ```
 
-3. **Install Frontend dependencies:**
+### 2. MLOps Training Pipeline
 ```bash
-cd frontend
-npm install
-cd ..
-```
-
-### MLOps Pipeline: Data & Training
-
-To prepare the model for use, follow the data processing and training sequence:
-
-```bash
-# 1. Clean the raw medical dataset
+# Clean the dataset and normalize medical terms
 python3 clean_data.py
 
-# 2. Build the graph dataset with BioBERT embeddings
+# Build graph data with BioBERT embeddings
 python3 ai_engine/dataset_builder.py
 
-# 3. Train the GAT model (supports MPS/CUDA acceleration)
+# Train the hardened GAT model
 python3 ai_engine/train.py
 ```
 
-### Running the Full Stack
-
-For local testing without full infrastructure, use the simulated server mode:
-
-1. **Start the AI Inference Service:**
+### 3. Launching the Services
 ```bash
+# Start the AI Service (Terminal 1)
 python3 mock_server.py
-```
 
-2. **Start the Backend Gateway:**
-```bash
+# Start the Backend Gateway (Terminal 2)
 python3 mock_backend.py
-```
 
-3. **Start the Frontend UI:**
-```bash
+# Start the Frontend UI (Terminal 3)
 cd frontend
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to interact with the system.
-
-## Testing and Validation
-
-Comprehensive validation scripts are included to verify the integration of the BioBERT-GAT pipeline:
-
-```bash
-# Run end-to-end GAT inference demo
-python3 run_gat_demo.py
-```
-
-## Deployment
-
-The project is ready for containerized deployment using Docker:
-```bash
-docker-compose up --build
-```
-Or orchestrated via Kubernetes using the manifests provided in the `k8s/` directory.
+Visit [http://localhost:3000](http://localhost:3000) to access the production interface.

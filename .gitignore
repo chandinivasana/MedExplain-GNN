@@ -11,6 +11,7 @@ ENV/
 
 # Python
 __pycache__/
+*.pth
 *.py[cod]
 *$py.class
 *.so
