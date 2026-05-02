@@ -54,10 +54,14 @@ def ingest_data(tx, disease_name, symptoms):
             """, dis=disease_name, food=food)
 
 def build_graph():
-    print("Loading real-world dataset...")
-    data_path = "data/dataset.csv"
+    print("Loading cleaned medical dataset...")
+    data_path = "data/cleaned_dataset.csv"
     if not os.path.exists(data_path):
-        data_path = "/app/data/dataset.csv" # For Docker context
+        data_path = "/app/data/cleaned_dataset.csv" # For Docker context
+        
+    if not os.path.exists(data_path):
+        print("Cleaned dataset not found. Falling back to raw dataset.")
+        data_path = "data/dataset.csv"
         
     with driver.session() as session:
         # Clear existing toy data

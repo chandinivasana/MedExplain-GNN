@@ -13,8 +13,8 @@ mock_session = MagicMock()
 mock_driver.session.return_value.__enter__.return_value = mock_session
 
 # Load dataset for mock data
-print("Loading dataset for mocking...")
-df = pd.read_csv('data/dataset.csv')
+print("Loading cleaned dataset for mocking...")
+df = pd.read_csv('data/cleaned_dataset.csv')
 df['Disease'] = df['Disease'].str.strip()
 unique_diseases = df['Disease'].unique().tolist()
 unique_symptoms = set()

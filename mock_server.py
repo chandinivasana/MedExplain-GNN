@@ -27,7 +27,7 @@ mock_db = MagicMock()
 mock_mongo.get_default_database.return_value = mock_db
 
 # Load dataset for mock logic
-df = pd.read_csv('data/dataset.csv')
+df = pd.read_csv('data/cleaned_dataset.csv')
 df['Disease'] = df['Disease'].str.strip()
 unique_diseases = df['Disease'].unique().tolist()
 edges = []

@@ -38,13 +38,15 @@ def train():
 
     data = data.to(device)
     model = MedicalGAT(num_node_features=data.x.size(1), hidden_channels=64, num_classes=data.num_classes).to(device)
+    # THE FIX: Added weight_decay to stabilize attention weights and studies the graph longer
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
-    early_stopping = EarlyStopping(patience=15)
+    early_stopping = EarlyStopping(patience=30) # Increased patience for longer training
 
     model.train()
-    for epoch in range(200):
+    for epoch in range(500): # Increased from 200 to 500
         optimizer.zero_grad()
         out = model(data.x, data.edge_index)
+        # Using NLLLoss as the model output is log_softmax
         loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()

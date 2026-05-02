@@ -41,7 +41,6 @@ class GATInferenceEngine:
 
     def predict(self, input_symptoms):
         # 1. Prepare Features
-        # We start with the BioBERT features from the saved graph
         x = self.data.x.clone()
         
         active_found = False
@@ -49,7 +48,6 @@ class GATInferenceEngine:
             s_lower = s.lower().replace("_", " ")
             if s_lower in self.symptom_mapping:
                 idx = self.symptom_mapping[s_lower]
-                # Boost the input symptom embeddings to signal activation
                 x[idx] *= 2.0 
                 active_found = True
         
@@ -61,15 +59,14 @@ class GATInferenceEngine:
             logits = self.model(x, self.data.edge_index)
             # Apply Temperature Scaling to the disease nodes' logits
             disease_logits = logits[self.num_symptoms:]
-            # Calibration: Temperature scaling
-            probs = F.softmax(disease_logits / self.temperature, dim=1)
             
-            # Confidence is the probability of the predicted class for each node? 
-            # Actually, this is node classification. The output at node i is the prob dist for its class.
-            # For disease nodes, we look at the probability of their assigned class.
-            disease_confidences = probs.diag()
+            # THE FIX: We want a single distribution across all possible diseases.
+            # We extract the score for the target class of each disease node (the diagonal)
+            # and then apply Softmax across the entire vector of diseases.
+            disease_scores = disease_logits.diag()
+            probs = F.softmax(disease_scores / self.temperature, dim=0)
             
-            top_probs, top_indices = torch.topk(disease_confidences, k=min(3, self.num_classes))
+            top_probs, top_indices = torch.topk(probs, k=min(3, self.num_classes))
             
             predictions = []
             for p, idx in zip(top_probs, top_indices):
