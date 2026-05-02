@@ -38,8 +38,7 @@ def train():
 
     data = data.to(device)
     
-    # --- FIX 3: CLASS WEIGHTS (NEGATIVE SAMPLING ALTERNATIVE) ---
-    # Calculate degree of each disease node to identify hubs
+    # --- FIX 3: CLASS WEIGHTS (SQUARE ROOT INVERSE) ---
     disease_indices = range(data.num_symptoms, data.num_symptoms + data.num_classes)
     degrees = torch.zeros(data.num_classes, device=device)
     for i in range(data.edge_index.size(1)):
@@ -47,34 +46,25 @@ def train():
         if tgt in disease_indices:
             degrees[tgt - data.num_symptoms] += 1
     
-    # Penalize high-degree hubs (like Asthma/Hypertension)
-    # Weights are inverse of degree to reward rare/specific connections
-    weights = 1.0 / (degrees + 1e-6)
+    # Penalize high-degree hubs moderately using square root inverse
+    weights = 1.0 / (torch.sqrt(degrees) + 1e-6)
     weights = weights / weights.sum() * data.num_classes # Normalize
     
     model = MedicalGAT(num_node_features=data.x.size(1), hidden_channels=64, num_classes=data.num_classes).to(device)
-    # THE FIX: Added weight_decay to stabilize attention weights and studies the graph longer
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=5e-4)
-    # THE FIX: Using CrossEntropyLoss with weights to penalize over-predicting hubs
-    criterion = torch.nn.CrossEntropyLoss(weight=weights)
-    early_stopping = EarlyStopping(patience=30) # Increased patience for longer training
-
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=1e-4)
+    
     model.train()
-    for epoch in range(500): # Increased from 200 to 500
+    for epoch in range(200):
         optimizer.zero_grad()
-        out = model(data.x, data.edge_index)
-        # Using CrossEntropyLoss for multi-class node classification
-        loss = criterion(out[data.train_mask], data.y[data.train_mask])
+        embeddings = model(data.x, data.edge_index)
+        # Use the out_layer to get logits for training
+        logits = model.out_layer(embeddings)
+        loss = F.cross_entropy(logits[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()
-
-        if epoch % 10 == 0:
+        
+        if epoch % 50 == 0:
             print(f"Epoch {epoch:03d}, Loss: {loss.item():.4f}")
-
-        early_stopping(loss.item())
-        if early_stopping.early_stop:
-            print(f"Early stopping at epoch {epoch}")
-            break
 
     # Save model
     torch.save(model.state_dict(), 'ai_engine/best_model.pth')

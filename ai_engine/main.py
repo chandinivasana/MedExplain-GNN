@@ -90,6 +90,7 @@ async def process_sync(input: SymptomInput):
         return {
             "disease": top_disease,
             "confidence": float(top_conf),
+            "explanation": f"Detected symptoms: {', '.join(symptoms)}. The GAT model identified {top_disease} as the most likely diagnosis based on graph attention weights.",
             "predictions": [{"disease": d, "confidence": float(c)} for d, c in predictions],
             "dietary_precautions": dietary_precautions,
             "cypher_query": cypher_query

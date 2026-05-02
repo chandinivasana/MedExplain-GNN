@@ -44,13 +44,14 @@ class GATInferenceEngine:
         x = self.data.x.clone()
         
         active_found = False
+        active_indices = []
         for s in input_symptoms:
             s_lower = s.lower().replace("_", " ")
             if s_lower in self.symptom_mapping:
                 idx = self.symptom_mapping[s_lower]
-                # THE MEGAPHONE FIX: Increased to 20.0x as per Master Fix requirements
-                # This forces the attention mechanism to focus on specific input nodes
-                x[idx] *= 20.0 
+                # THE MEGAPHONE FIX: Drastic boost to 50x for exact symptom nodes
+                x[idx] *= 50.0 
+                active_indices.append(idx)
                 active_found = True
         
         if not active_found:
@@ -58,14 +59,18 @@ class GATInferenceEngine:
 
         # 2. Inference
         with torch.no_grad():
-            # Get the final embeddings (logits)
-            logits = self.model(x, self.data.edge_index)
+            # Get the final embeddings (features)
+            embeddings = self.model(x, self.data.edge_index)
+            disease_features = embeddings[self.num_symptoms:]
+                
+            # Create a 'query' vector by focusing ONLY on the activated symptom embeddings
+            query_vector = embeddings[active_indices].mean(dim=0, keepdim=True)
             
-            # THE FIX: Apply Aggressive Temperature Scaling (T=0.1) to sharpen the peak
-            # Force probabilities to sum to 1.0 (100%)
-            disease_logits = logits[self.num_symptoms:].diag()
-            # Sharper calibration for boundary separation
-            probs = F.softmax(disease_logits / 0.1, dim=0)
+            # Calculate Cosine Similarity between the query and all disease nodes
+            sims = F.cosine_similarity(query_vector, disease_features)
+            
+            # Calibration: Temperature scaling on similarities (T=0.05 for very sharp selection)
+            probs = F.softmax(sims / 0.05, dim=0)
             
             top_probs, top_indices = torch.topk(probs, k=min(3, self.num_classes))
             
