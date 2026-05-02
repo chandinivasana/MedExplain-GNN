@@ -1,57 +1,65 @@
 # MedExplain-GNN: Explainable Medical Reasoning Engine
 
-**MedExplain-GNN** is an end-to-end, graph-based medical reasoning engine designed to move beyond "black-box" AI. It translates unstructured user symptom descriptions into precise medical predictions and provides contextual dietary precautions based on biological interactions.
+MedExplain-GNN is a graph-based medical reasoning engine that translates unstructured symptom descriptions into precise disease predictions and contextual dietary precautions. The system utilizes Graph Attention Networks (GAT) and BioBERT embeddings to provide transparent, clinically-grounded reasoning.
 
-##  Key Features
+## Key Features
 
--   **Explainable Graph Reasoning:** Powered by **Graph Convolutional Networks (GCN)** using **PyTorch Geometric** for disease prediction from symptom node neighborhoods.
--   **Medical NER Pipeline:** Utilizes **BioBERT** for extracting exact symptoms and medical entities from raw text.
--   **Knowledge Graph Traversal:** Built with **Neo4j** to provide transparent, graph-justified reasons for dietary contraindications.
--   **Microservice Architecture:** Distributed system including a **FastAPI** Gateway, **Next.js** Frontend, and dedicated **AI Inference** services.
--   **Production-Ready DevOps:** Containerized with **Docker** and orchestrated via **Kubernetes (K8s)** with automated health probes and persistent logging in **MongoDB**.
--   **Asynchronous Processing:** Integrated with **Redis** for efficient message passing between services.
+- **Graph Attention Networks (GAT):** Uses GATConv layers to dynamically weight symptoms based on clinical importance.
+- **BioBERT Node Embeddings:** Initializes graph nodes with 768-dimensional medical embeddings for semantic reasoning.
+- **Explainable Reasoning:** Queries a Neo4j knowledge graph to justify predictions and provide dietary contraindications.
+- **MLOps Pipeline:** Decoupled training and inference with model persistence (.pth) and temperature-calibrated outputs.
+- **Microservice Architecture:** Distributed system including FastAPI Gateway, Next.js Frontend, and Redis/RQ asynchronous processing.
 
-##  Tech Stack
+## Technical Architecture
 
--   **Frontend:** Next.js (TypeScript, Tailwind CSS)
--   **Backend:** FastAPI (Python)
--   **AI Engine:** PyTorch Geometric (GNN), Transformers (BioBERT)
--   **Databases:** Neo4j (Graph), MongoDB (NoSQL Logs), Redis (Cache/Queue)
--   **Infrastructure:** Docker, Kubernetes (Minikube/Kind), Makefile
+1. **Extraction:** Raw text is processed via BioBERT NER to identify medical entities.
+2. **Embedding:** Identified symptoms are mapped to nodes initialized with BioBERT embeddings.
+3. **Inference:** A trained GAT model performs node classification across the symptom-disease graph.
+4. **Calibration:** Temperature scaling is applied to logits to ensure realistic confidence scoring.
+5. **Explainability:** Neo4j is queried for [:CONTRAINDICATED] and [:RECOMMENDED] edges related to the predicted disease.
 
-##  Architecture
+## Project Structure
 
-1.  **Symptom Ingestion:** Users input descriptions into the Next.js interface.
-2.  **Entity Extraction:** FastAPI forwards text to the AI Engine where BioBERT extracts symptom entities.
-3.  **Graph Inference:** Extracted symptoms map to Neo4j nodes. The GCN performs inference on the local graph structure to predict a disease.
-4.  **Explainability:** The system queries Neo4j for nodes connected to the predicted disease via the `[:CONTRAINDICATED]` edge.
-5.  **Output:** The user receives a prediction, a detailed explanation, and a list of foods to avoid.
+- `ai_engine/model.py`: PyTorch Geometric GAT architecture.
+- `ai_engine/dataset_builder.py`: BioBERT embedding generation and graph construction.
+- `ai_engine/train.py`: Offline training script with early stopping.
+- `ai_engine/inference.py`: Model loading and calibrated prediction logic.
+- `ai_engine/main.py`: FastAPI service with lifespan model management.
+- `ai_engine/worker.py`: Asynchronous task worker for background inference.
 
-##  Getting Started
+## Installation and Setup
 
 ### Prerequisites
-- Docker & Docker Compose
-- Kubernetes (Minikube or similar)
 - Python 3.10+
+- Neo4j Database
+- Redis (for async tasks)
+- MongoDB (for logging)
 
-### Local Development (Docker Compose)
+### Local Environment Setup
 ```bash
-./setup.sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r ai_engine/requirements.txt
 ```
 
-### Kubernetes Deployment
+### Model Training (MLOps Pipeline)
 ```bash
-# Point shell to minikube docker engine
-eval $(minikube docker-env)
+# 1. Build the graph dataset with BioBERT embeddings
+python3 ai_engine/dataset_builder.py
 
-# Build images locally
-docker build -t dl-frontend:latest ./frontend
-docker build -t dl-backend:latest ./backend
-docker build -t dl-ai-service:latest ./ai_engine
-
-# Deploy and Populate
-make k8s-deploy
-make k8s-populate
-make k8s-port-forward
+# 2. Train the GAT model
+python3 ai_engine/train.py
 ```
 
+### Running the Services
+```bash
+# Start the AI Service
+uvicorn ai_engine.main:app --host 0.0.0.0 --port 8001
+```
+
+## Testing
+
+A demonstration script is provided to verify the full pipeline (Extraction -> GAT Inference -> Explainability):
+```bash
+python3 run_gat_demo.py
+```

@@ -12,9 +12,13 @@ until curl -s http://localhost:7474 > /dev/null; do
   sleep 5
 done
 
-echo "--- Populating the Knowledge Graph ---"
-# Run population inside the container to ensure drivers are present
-docker exec ai-service python populate_graph_v2.py
+echo "--- Populating the Knowledge Graph with Real Data ---"
+# Run the professional data ingestion pipeline
+docker exec ai-service python database/seed_database.py
+
+echo "--- Retraining GNN on new dataset ---"
+# AI Service automatically trains on startup, but we'll trigger a restart to ensure it's fresh
+docker-compose restart ai-service ai-worker
 
 echo "--- Setup complete! ---"
 echo "Frontend: http://localhost:3000"

@@ -32,13 +32,34 @@ services:
     depends_on:
       - neo4j
       - redis
+      - mongodb
     volumes:
       - ./database:/app/database
+      - ./data:/app/data
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=password
       - REDIS_URL=redis://redis:6379/0
+      - MONGO_URI=mongodb://mongodb:27017/medexplain_logs
+
+  ai-worker:
+    build: ./ai_engine
+    container_name: ai-worker
+    command: python worker.py
+    depends_on:
+      - redis
+      - mongodb
+      - neo4j
+    volumes:
+      - ./database:/app/database
+      - ./data:/app/data
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
+      - REDIS_URL=redis://redis:6379/0
+      - MONGO_URI=mongodb://mongodb:27017/medexplain_logs
 
   backend:
     build: ./backend

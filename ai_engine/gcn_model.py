@@ -9,14 +9,20 @@ class MedicalGNN(torch.nn.Module):
         super(MedicalGNN, self).__init__()
         # Using Graph Convolutional Networks for scalable message passing
         self.conv1 = GCNConv(num_node_features, hidden_channels)
-        self.conv2 = GCNConv(hidden_channels, num_classes)
+        self.conv2 = GCNConv(hidden_channels, 32)
+        # The final layer MUST dynamically match the number of diseases in the DB
+        self.out_layer = torch.nn.Linear(32, num_classes)
 
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, p=0.5, training=self.training)
+        
         x = self.conv2(x, edge_index)
-        # Softmax probability distribution over the dynamic classes
+        x = F.relu(x)
+        
+        # Output probability distribution across all diseases
+        x = self.out_layer(x)
         return F.log_softmax(x, dim=1)
 
 class GNNInferenceEngine:
@@ -36,14 +42,15 @@ class GNNInferenceEngine:
 
     def train_gnn_on_graph(self):
         """Dynamically queries Neo4j to construct the PyG Data and trains the GCN."""
+        print("Training GNN on graph data...")
         with self.driver.session() as session:
             symptoms_result = session.run("MATCH (s:Symptom) RETURN s.name AS name")
             diseases_result = session.run("MATCH (d:Disease) RETURN d.name AS name")
-            edges_result = session.run("MATCH (s:Symptom)-[:PRESENT_IN]->(d:Disease) RETURN s.name AS symptom, d.name AS disease")
+            edges_result = session.run("MATCH (s:Symptom)-[r:HAS_SYMPTOM]->(d:Disease) RETURN s.name AS symptom, d.name AS disease, r.weight AS weight")
             
             symptoms = [record["name"].lower() for record in symptoms_result]
             diseases = [record["name"] for record in diseases_result]
-            edges_data = [(record["symptom"].lower(), record["disease"]) for record in edges_result]
+            edges_data = [(record["symptom"].lower(), record["disease"], record.get("weight", 0.8)) for record in edges_result]
         
         # Build index mappings
         for i, s in enumerate(symptoms):
@@ -57,7 +64,7 @@ class GNNInferenceEngine:
         num_diseases = len(self.disease_mapping)
         
         if num_symptoms == 0 or num_diseases == 0:
-            print("Graph is empty. Please run populate_graph_v2.py first.")
+            print("Graph is empty. Please run seed_database.py first.")
             return
 
         # Prepare PyTorch Geometric Data representations
@@ -66,7 +73,7 @@ class GNNInferenceEngine:
         
         source_nodes = []
         target_nodes = []
-        for s, d in edges_data:
+        for s, d, w in edges_data:
             s_idx = self.symptom_mapping[s]
             d_idx = num_symptoms + self.disease_mapping[d]
             # Bidirectional message passing
@@ -89,7 +96,7 @@ class GNNInferenceEngine:
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.01, weight_decay=5e-4)
         
         self.model.train()
-        for epoch in range(200):
+        for epoch in range(100):
             optimizer.zero_grad()
             out = self.model(x, self.edge_index)
             loss = F.nll_loss(out[train_mask], y[train_mask])
@@ -100,7 +107,7 @@ class GNNInferenceEngine:
     def predict(self, input_symptoms):
         """Performs GNN inference for a given array of symptoms and fetches dietary logic."""
         if not self.model:
-            return [("Insufficient Data", 0.0)], []
+            return [("Insufficient Data", 0.0)], [], "Graph empty"
             
         self.model.eval()
         num_symptoms = len(self.symptom_mapping)
@@ -108,52 +115,62 @@ class GNNInferenceEngine:
         total_nodes = num_symptoms + num_diseases
         x = torch.eye(total_nodes, dtype=torch.float)
         
-        # Boost features of active input symptoms to influence message passing
-        active_symptom_indices = []
+        # Boost features of active input symptoms
+        active_found = False
         for s in input_symptoms:
-            s_lower = s.lower()
+            s_lower = s.lower().replace("_", " ")
             if s_lower in self.symptom_mapping:
                 idx = self.symptom_mapping[s_lower]
-                x[idx] *= 5.0 # Activation multiplier
-                active_symptom_indices.append(idx)
+                x[idx] *= 5.0 
+                active_found = True
+        
+        if not active_found:
+             return [("No Matching Symptoms", 0.0)], [], "No symptoms matched graph nodes"
                 
         with torch.no_grad():
             out = self.model(x, self.edge_index)
             
         # Extract probabilities for the disease nodes
-        # disease_out has shape [num_diseases, num_diseases]
         disease_out = out[num_symptoms:]
         probs = torch.exp(disease_out)
         
-        # We want the confidence of each disease node being its respective class
-        # This is effectively the diagonal of the probability matrix
+        # We take the diagonal if we want the node's own class confidence
+        # But in multi-class node classification, we look at the softmax over classes
+        # For inference, we can look at the average or sum of influences, 
+        # or simply the node classification result for the disease nodes.
         disease_confidences = probs.diag()
         
-        # Return Top 3 predicted diseases
         top_probs, top_indices = torch.topk(disease_confidences, k=min(3, num_diseases))
         predictions = []
         for p, idx in zip(top_probs, top_indices):
-            # p and idx are now scalars (0-d tensors)
             predictions.append((self.reverse_disease_mapping[idx.item()], p.item()))
             
         top_disease = predictions[0][0]
         
-        # Explainability: Traverse graph for Contraindications for the Top Prediction
+        # Traverse graph for Contraindications/Recommendations
         dietary_precautions = []
         with self.driver.session() as session:
-            result = session.run("MATCH (d:Disease {name: $name})-[:CONTRAINDICATED]->(f:Food) RETURN f.name AS food, f.reason AS reason", name=top_disease)
+            result = session.run("""
+                MATCH (d:Disease {name: $name})-[:CONTRAINDICATED]->(f:Food) 
+                RETURN f.name AS food, 'Avoid' AS type
+                UNION
+                MATCH (d:Disease {name: $name})-[:RECOMMENDED]->(f:Food) 
+                RETURN f.name AS food, 'Recommended' AS type
+            """, name=top_disease)
             for record in result:
-                dietary_precautions.append(f"{record['food']} - {record['reason']}")
+                dietary_precautions.append(f"{record['type']}: {record['food']}")
+        
+        cypher_query = f"MATCH (d:Disease {{name: '{top_disease}'}})-[:CONTRAINDICATED|RECOMMENDED]->(f:Food) RETURN f.name, labels(f)"
                 
-        return predictions, dietary_precautions
+        return predictions, dietary_precautions, cypher_query
 
-# Singleton Engine wrapper
+# Singleton Engine
 engine = None
 def get_disease_prediction(symptoms):
     global engine
     if engine is None:
         engine = GNNInferenceEngine()
     
-    predictions, dietary_precautions = engine.predict(symptoms)
+    predictions, dietary_precautions, cypher_query = engine.predict(symptoms)
     top_disease, top_conf = predictions[0]
-    return top_disease, top_conf, predictions, dietary_precautions
+    return top_disease, top_conf, predictions, dietary_precautions, cypher_query

@@ -1,18 +1,25 @@
 from transformers import pipeline
+import fitz  # PyMuPDF
+import io
 
 class SymptomExtractor:
     def __init__(self, model_name="d4data/biomedical-ner-all"):
-        # Temporarily disabled BioBERT to prevent service hang in local environment
-        self.nlp = None
-        print("Using heuristic medical symptom extractor.")
+        try:
+            # Load a robust biomedical NER model via HuggingFace
+            # aggregation_strategy="simple" merges sub-tokens into complete entities
+            self.nlp = pipeline("ner", model=model_name, aggregation_strategy="simple")
+            print("Successfully loaded BioBERT NER pipeline.")
+        except Exception as e:
+            print(f"Warning: Could not load BioBERT NER model. Using heuristic fallback. Error: {e}")
+            self.nlp = None
             
         # A comprehensive dictionary of 100+ symptoms matching our synthetic dataset
         self.common_symptoms = [
-            "fever", "chills", "muscle aches", "cough", "congestion", "runny nose", "headache", "fatigue",
-            "high fever", "severe headache", "pain behind the eyes", "joint pain", "muscle pain", "nausea", 
+            "fever", "chills", "muscle pain", "muscle aches", "cough", "congestion", "runny nose", "headache", "fatigue",
+            "high fever", "severe headache", "pain behind the eyes", "joint pain", "nausea", 
             "vomiting", "skin rash", "profuse sweating", "increased thirst", "frequent urination", "increased hunger", 
-            "unintended weight loss", "blurred vision", "slow-healing sores", "frequent infections", "watery diarrhea", 
-            "abdominal cramps", "low-grade fever", "shortness of breath", "nosebleeds", "flushing", "dizziness", 
+            "unintended weight loss", "blurred vision", "slow healing sores", "frequent infections", "watery diarrhea", 
+            "abdominal cramps", "low grade fever", "shortness of breath", "nosebleeds", "flushing", "dizziness", 
             "chest pain", "visual changes", "throbbing pain", "pulsing pain", "sensitivity to light", "sensitivity to sound",
             "tiredness", "loss of taste", "loss of smell", "chest tightness", "wheezing", "coughing attacks",
             "weakness", "pale skin", "cold hands and feet", "brittle nails", "diarrhea", "weight loss", "bloating", "gas",
@@ -41,12 +48,24 @@ class SymptomExtractor:
                 
         # 2. Heuristic extraction mapping directly to our defined Knowledge Graph nodes
         # This acts as a robust fallback and ensures high recall for known graph nodes
-        text_lower = text.lower()
+        text_lower = text.lower().replace("_", " ")
         for sym in self.common_symptoms:
             if sym in text_lower:
                 symptoms.add(sym)
                 
         return list(symptoms)
+
+    def extract_from_pdf(self, pdf_content: bytes) -> list:
+        """Parses a PDF lab report and extracts symptoms."""
+        try:
+            doc = fitz.open(stream=pdf_content, filetype="pdf")
+            full_text = ""
+            for page in doc:
+                full_text += page.get_text()
+            return self.extract(full_text)
+        except Exception as e:
+            print(f"PDF Parsing error: {e}")
+            return []
 
 if __name__ == "__main__":
     extractor = SymptomExtractor()
