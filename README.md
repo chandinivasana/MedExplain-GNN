@@ -8,7 +8,7 @@
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 The system is built as a containerized microservices architecture:
 
@@ -21,7 +21,7 @@ The system is built as a containerized microservices architecture:
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Docker & Docker Compose (v2.0+)
@@ -44,7 +44,7 @@ chmod +x setup.sh
 
 ---
 
-## 🧠 MLOps & Training Pipeline
+##  MLOps & Training Pipeline
 
 To maintain or retrain the GAT model within the `ai-service` container:
 
@@ -66,7 +66,7 @@ docker compose exec ai-service python evaluate_model.py
 
 ---
 
-## 🛠️ API Reference
+##  API Reference
 
 ### Disease Prediction
 `POST /predict-disease`
@@ -93,7 +93,7 @@ docker compose exec ai-service python evaluate_model.py
 
 ---
 
-## 📂 Project Structure
+##  Project Structure
 
 ```text
 ├── ai_engine/          # GAT Model, BioBERT NER, and Inference Logic
@@ -104,10 +104,3 @@ docker compose exec ai-service python evaluate_model.py
 └── k8s/                # Kubernetes Deployment Manifests
 ```
 
----
-
-## 🛡️ Disclaimer
-*This project is for academic demonstration and research purposes only. It is not intended for clinical use or professional medical diagnosis.*
-
-## 📄 License
-Distributed under the MIT License. See `LICENSE` for more information.
