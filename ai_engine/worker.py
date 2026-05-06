@@ -3,7 +3,7 @@ import time
 import uuid
 import asyncio
 from redis import Redis
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # New GAT Inference Engine
@@ -84,7 +84,6 @@ def process_medical_inference(task_id, text):
 
 if __name__ == '__main__':
     redis_conn = Redis.from_url(REDIS_URL)
-    with Connection(redis_conn):
-        worker = Worker(['medical_inference'])
-        print("[Worker] GAT Inference Worker listening...")
-        worker.work()
+    worker = Worker(['medical_inference'], connection=redis_conn)
+    print("[Worker] GAT Inference Worker listening...")
+    worker.work()

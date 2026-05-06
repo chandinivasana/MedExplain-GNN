@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
         print("Model loaded successfully.")
     except Exception as e:
         print(f"CRITICAL: Failed to load model: {e}")
+        traceback.print_exc()
         app.state.engine = None
     
     app.state.extractor = SymptomExtractor()
