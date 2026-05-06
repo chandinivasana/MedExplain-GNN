@@ -11,7 +11,7 @@
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 The system is built as a containerized microservices architecture:
 
@@ -24,7 +24,7 @@ The system is built as a containerized microservices architecture:
 
 ---
 
-## 🛠️ Engineering Highlights: Addressing GNN Model Collapse
+##  Engineering Highlights: Addressing GNN Model Collapse
 
 During development, the model was diagnosed with **topological bias** and **over-smoothing**, where the graph structure overwhelmed the specific symptom signals of the patient. To reach production-grade accuracy, the following engineering decisions were implemented:
 
@@ -35,7 +35,7 @@ During development, the model was diagnosed with **topological bias** and **over
 
 ---
 
-## 📊 Live QA Audit & Convergence
+## Live QA Audit & Convergence
 
 The system has been rigorously validated through an automated MLOps pipeline:
 
@@ -45,7 +45,7 @@ The system has been rigorously validated through an automated MLOps pipeline:
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Docker & Docker Compose (v2.0+)
@@ -68,7 +68,7 @@ chmod +x setup.sh
 
 ---
 
-## 🧠 MLOps & Training Pipeline
+##  MLOps & Training Pipeline
 
 To maintain or retrain the GAT model within the `ai-service` container:
 
@@ -90,7 +90,7 @@ docker compose exec ai-service python evaluate_model.py
 
 ---
 
-## 🛠️ API Reference
+##  API Reference
 
 ### Disease Prediction
 `POST /predict-disease`
@@ -117,7 +117,7 @@ docker compose exec ai-service python evaluate_model.py
 
 ---
 
-## 📂 Project Structure
+##  Project Structure
 
 ```text
 ├── ai_engine/          # GAT Model, BioBERT NER, and Inference Logic
@@ -127,11 +127,3 @@ docker compose exec ai-service python evaluate_model.py
 ├── data/               # Source Datasets and Processed Artifacts
 └── k8s/                # Kubernetes Deployment Manifests
 ```
-
----
-
-## 🛡️ Disclaimer
-*This project is for academic demonstration and research purposes only. It is not intended for clinical use or professional medical diagnosis.*
-
-## 📄 License
-Distributed under the MIT License. See `LICENSE` for more information.
