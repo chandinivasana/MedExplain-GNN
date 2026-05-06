@@ -1,75 +1,156 @@
 # MedExplain-GNN: Explainable Medical Reasoning Engine
 
-![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Next.js](https://img.shields.io/badge/next.js-16.1.6-black.svg)
-![PyTorch](https://img.shields.io/badge/pytorch-2.2.0-ee4c2c.svg)
-![Neo4j](https://img.shields.io/badge/neo4j-5.17.0-008cc1.svg)
+**MedExplain-GNN** is an end-to-end, graph-based medical reasoning engine. It translates unstructured symptom descriptions into disease predictions and returns contextual dietary precautions through a full-stack, containerized application.
 
-**MedExplain-GNN** is a high-performance, graph-based medical reasoning engine that translates unstructured symptom descriptions into precise disease predictions with transparent justifications. By fusing BioBERT embeddings with Graph Attention Networks (GAT), the system provides a production-ready pipeline for explainable AI in healthcare.
+> This project is intended for academic demonstration and engineering evaluation. It is not a clinical diagnostic system.
 
-## Features
+## Key Features
 
-- **Graph Attention Networks (GAT):** Implements multi-head attention mechanisms via PyTorch Geometric to dynamically weight symptoms based on clinical significance.
-- **BioBERT Semantic Embeddings:** Nodes are initialized with 768-dimensional biomedical embeddings, enabling the model to understand the semantic context of medical entities.
-- **Knowledge Graph Explainability:** Utilizes Neo4j to store and traverse complex relationships, providing real-time dietary precautions and transparent reasoning paths via Cypher queries.
-- **MLOps & Persistence:** Features a decoupled training-to-inference workflow with automated data cleaning and .pth model weight persistence for sub-millisecond cold starts.
+- **Graph Attention Reasoning:** PyTorch Geometric `MedicalGAT` model for disease prediction from symptom graph signals.
+- **Imbalance-Aware Training:** Focal Loss, class weighting, validation-mask training, and validation-loss early stopping.
+- **Calibrated Inference:** Temperature-scaled softmax with bounded symptom boosting to avoid extreme out-of-distribution feature shifts.
+- **Model QA:** `evaluate_model.py` reports accuracy, macro F1, per-class recall, confusion matrix, rare-class examples, and top-3 predictions.
+- **Knowledge Graph Traversal:** Neo4j stores symptom, disease, and dietary precaution relationships.
+- **Full-Stack App:** Next.js frontend, FastAPI backend gateway, dedicated FastAPI AI service, MongoDB logging, Redis/RQ, and Docker Compose.
+
+## Tech Stack
+
+- **Frontend:** Next.js, TypeScript, Tailwind CSS
+- **Backend Gateway:** FastAPI
+- **AI Service:** FastAPI, PyTorch, PyTorch Geometric, RQ worker support
+- **Databases:** Neo4j, MongoDB
+- **Infrastructure:** Docker Compose, Kubernetes manifests, Redis
 
 ## Architecture
 
-The system operates as a distributed microservice architecture:
-1. **Frontend (Next.js):** A modern, dark-mode "Gemini-clone" UI captures unstructured user input.
-2. **Backend Gateway (FastAPI):** Orchestrates requests and manages session logging in MongoDB.
-3. **Task Queue (Redis/RQ):** Manages asynchronous inference tasks for scalable processing.
-4. **AI Engine:**
-   - **BioBERT:** Performs Named Entity Recognition (NER) to extract medical symptoms.
-   - **GAT Model:** Executes node classification on the local graph neighborhood to predict the disease.
-5. **Knowledge Graph (Neo4j):** Provides the "Explainability Layer," retrieving contraindicated and recommended foods.
+1. **Symptom Ingestion:** The user enters a free-text symptom description in the Next.js UI.
+2. **Gateway Routing:** The frontend sends the request to the backend gateway at `localhost:8000`.
+3. **Symptom Extraction:** The backend forwards text to the AI service at `localhost:8001`.
+4. **GAT Inference:** Extracted symptoms are mapped to graph node indices and passed through the trained `MedicalGAT`.
+5. **Response:** The user receives the predicted disease, confidence, explanation, and dietary precautions.
 
-## The "Master Fix": Curing Model Collapse
+## Local Development
 
-A common failure in GNNs on power-law graphs (like medical knowledge graphs) is **Model Collapse** and **Over-smoothing**, where the model defaults to predicting high-degree "hubs" (e.g., Asthma) regardless of input.
+### Prerequisites
 
-This project overcomes these challenges through:
-- **Multi-Head Attention (8 heads):** Forces the model to study the graph from multiple mathematical perspectives simultaneously.
-- **Topological Bias Mitigation:** Implements **Inverse-Degree Class Weighting** in the loss function to penalize hub bias and reward specific, rare disease predictions.
-- **The Megaphone Effect:** Applies a **20x scalar multiplier** to active symptom embeddings during inference, forcing the attention mechanism to prioritize user-provided signal over structural graph noise.
-- **Sharpened Boundaries:** Utilizes **Temperature Scaling (T=0.1)** to push confidence scores from a noisy 3% to a calibrated 96%.
+- Docker & Docker Compose
+- Python is not required on the host when running through Docker
 
-## Installation & Setup
+### Start the Full Stack
 
-### 1. Environment Setup
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r ai_engine/requirements.txt
+docker compose up --build -d
 ```
 
-### 2. MLOps Training Pipeline
-```bash
-# Clean the dataset and normalize medical terms
-python3 clean_data.py
+Services:
 
-# Build graph data with BioBERT embeddings
-python3 ai_engine/dataset_builder.py
-
-# Train the hardened GAT model
-python3 ai_engine/train.py
+```text
+Frontend:    http://localhost:3000
+Backend:     http://localhost:8000
+AI Service:  http://localhost:8001
+Neo4j:       http://localhost:7474
+MongoDB:     localhost:27017
+Redis:       localhost:6379
 ```
 
-### 3. Launching the Services
+### Generate Graph Data and Train the GAT
+
+Run these inside the AI service container:
+
 ```bash
-# Start the AI Service (Terminal 1)
-python3 mock_server.py
-
-# Start the Backend Gateway (Terminal 2)
-python3 mock_backend.py
-
-# Start the Frontend UI (Terminal 3)
-cd frontend
-npm run dev
+docker compose exec ai-service python dataset_builder.py
+docker compose exec ai-service python train.py \
+  --data-path graph_data.pt \
+  --save-path best_model.pth \
+  --hidden-channels 256 \
+  --epochs 250 \
+  --patience 50 \
+  --gamma 2.0
 ```
 
-Visit [http://localhost:3000](http://localhost:3000) to access the production interface.
+Expected model artifacts in `/app`:
+
+```text
+best_model.pth
+graph_data.pt
+index_to_disease.json
+```
+
+Restart the AI service after training:
+
+```bash
+docker compose restart ai-service
+```
+
+### Evaluate the Model
+
+```bash
+docker compose exec ai-service python evaluate_model.py \
+  --graph-data-path graph_data.pt \
+  --checkpoint-path best_model.pth
+```
+
+The evaluator writes:
+
+```text
+evaluation_report/evaluation_report.json
+evaluation_report/confusion_matrix.csv
+```
+
+The report includes accuracy, macro F1, per-class precision/recall/F1, rare-class accuracy, top-3 predictions, saved validation loss, and confidence calibration.
+
+### Verify Real Model Inference
+
+Check artifacts:
+
+```bash
+docker compose exec ai-service ls -lh best_model.pth graph_data.pt index_to_disease.json
+```
+
+Check that the service is not falling back to demo predictions:
+
+```bash
+docker compose logs --tail=80 ai-service
+```
+
+Run a live request:
+
+```bash
+curl -X POST http://localhost:8000/predict-disease \
+  -H "Content-Type: application/json" \
+  -d '{"text":"I have high fever, severe joint pain, and pain behind my eyes."}'
+```
+
+Expected example response after training:
+
+```json
+{
+  "disease": "Dengue",
+  "confidence": 0.981683611869812,
+  "explanation": "Detected symptoms: fever, joint pain, pain behind eyes. The GAT model identified Dengue as the most likely diagnosis based on graph attention weights.",
+  "predictions": [
+    {"disease": "Dengue", "confidence": 0.981683611869812}
+  ],
+  "dietary_precautions": ["Avoid: Salty Foods"]
+}
+```
+
+## Notes on Model Quality
+
+The included `dataset_builder.py` creates a compact demonstration dataset so the full MLOps path can run locally end to end. It is useful for final-year project demonstration, Dockerized model serving, and QA validation.
+
+For clinical-grade claims, replace the generated dataset with a validated medical dataset and report held-out performance, macro F1, per-class recall, confusion matrix, calibration, and rare-disease behavior.
+
+## Kubernetes Deployment
+
+```bash
+eval $(minikube docker-env)
+
+docker build -t dl-frontend:latest ./frontend
+docker build -t dl-backend:latest ./backend
+docker build -t dl-ai-service:latest ./ai_engine
+
+make k8s-deploy
+make k8s-populate
+make k8s-port-forward
+```

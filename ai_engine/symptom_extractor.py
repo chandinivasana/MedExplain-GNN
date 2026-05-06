@@ -1,72 +1,79 @@
 from transformers import pipeline
-import fitz  # PyMuPDF
-import io
+
+try:
+    import fitz
+except ImportError:
+    fitz = None
+
 
 class SymptomExtractor:
     def __init__(self, model_name="d4data/biomedical-ner-all"):
         try:
-            # Load a robust biomedical NER model via HuggingFace
-            # aggregation_strategy="simple" merges sub-tokens into complete entities
             self.nlp = pipeline("ner", model=model_name, aggregation_strategy="simple")
             print("Successfully loaded BioBERT NER pipeline.")
-        except Exception as e:
-            print(f"Warning: Could not load BioBERT NER model. Using heuristic fallback. Error: {e}")
+        except Exception as exc:
+            print(f"Warning: Could not load BioBERT NER model. Using heuristic fallback. Error: {exc}")
             self.nlp = None
-            
-        # A comprehensive dictionary of 100+ symptoms matching our synthetic dataset
-        self.common_symptoms = [
-            "fever", "chills", "muscle pain", "muscle aches", "cough", "congestion", "runny nose", "headache", "fatigue",
-            "high fever", "severe headache", "pain behind the eyes", "joint pain", "nausea", 
-            "vomiting", "skin rash", "profuse sweating", "increased thirst", "frequent urination", "increased hunger", 
-            "unintended weight loss", "blurred vision", "slow healing sores", "frequent infections", "watery diarrhea", 
-            "abdominal cramps", "low grade fever", "shortness of breath", "nosebleeds", "flushing", "dizziness", 
-            "chest pain", "visual changes", "throbbing pain", "pulsing pain", "sensitivity to light", "sensitivity to sound",
-            "tiredness", "loss of taste", "loss of smell", "chest tightness", "wheezing", "coughing attacks",
-            "weakness", "pale skin", "cold hands and feet", "brittle nails", "diarrhea", "weight loss", "bloating", "gas",
-            "abdominal pain", "burning stomach pain", "feeling of fullness", "belching", "heartburn", "tender joints", 
-            "warm joints", "swollen joints", "joint stiffness", "loss of appetite", "increased sensitivity to cold", "constipation", 
-            "dry skin", "weight gain", "puffy face", "muscle weakness", "rapid heartbeat", "irregular heartbeat", "palpitations", 
-            "nervousness", "anxiety", "irritability", "tremor", "sweating", "intense joint pain", "lingering discomfort", 
-            "inflammation", "redness", "limited range of motion", "sleep problems", "changes in urine output", "decreased mental sharpness", 
-            "muscle twitches", "persistent cough", "coughing up blood", "night sweats", "confusion", "cough with phlegm", 
-            "stiffness", "swelling", "butterfly rash", "skin lesions"
-        ]
+
+        self.common_symptoms = {
+            "fever": "fever",
+            "high fever": "fever",
+            "chills": "chills",
+            "muscle pain": "muscle pain",
+            "muscle aches": "muscle pain",
+            "cough": "cough",
+            "congestion": "congestion",
+            "runny nose": "runny nose",
+            "headache": "headache",
+            "severe headache": "headache",
+            "fatigue": "fatigue",
+            "joint pain": "joint pain",
+            "severe joint pain": "joint pain",
+            "pain behind eyes": "pain behind eyes",
+            "pain behind my eyes": "pain behind eyes",
+            "pain behind the eyes": "pain behind eyes",
+            "nausea": "nausea",
+            "vomiting": "vomiting",
+            "diarrhea": "diarrhea",
+            "abdominal pain": "abdominal pain",
+            "abdominal cramps": "abdominal pain",
+            "shortness of breath": "shortness of breath",
+            "wheezing": "wheezing",
+            "chest tightness": "chest tightness",
+            "sore throat": "sore throat",
+            "sensitivity to light": "sensitivity to light",
+            "sensitivity to sound": "sensitivity to sound",
+        }
 
     def extract(self, text: str) -> list:
         symptoms = set()
-        
-        # 1. Advanced extraction via BioBERT NLP Model
+
         if self.nlp:
             try:
                 entities = self.nlp(text)
-                for ent in entities:
-                    # In specialized medical NER models, signs and symptoms are classified accurately
-                    if ent['entity_group'] in ['Sign_symptom', 'Disease_disorder', 'Diagnostic_procedure']:
-                        symptoms.add(ent['word'].lower().strip())
-            except Exception as e:
-                print(f"NER Inference error: {e}")
-                
-        # 2. Heuristic extraction mapping directly to our defined Knowledge Graph nodes
-        # This acts as a robust fallback and ensures high recall for known graph nodes
+                for entity in entities:
+                    if entity.get("entity_group") in {
+                        "Sign_symptom",
+                        "Disease_disorder",
+                        "Diagnostic_procedure",
+                    }:
+                        symptoms.add(entity["word"].lower().strip())
+            except Exception as exc:
+                print(f"NER inference error: {exc}")
+
         text_lower = text.lower().replace("_", " ")
-        for sym in self.common_symptoms:
-            if sym in text_lower:
-                symptoms.add(sym)
-                
-        return list(symptoms)
+        for keyword, symptom in self.common_symptoms.items():
+            if keyword in text_lower:
+                symptoms.add(symptom)
+
+        return sorted(symptoms)
 
     def extract_from_pdf(self, pdf_content: bytes) -> list:
-        """Parses a PDF lab report and extracts symptoms."""
-        try:
-            doc = fitz.open(stream=pdf_content, filetype="pdf")
-            full_text = ""
-            for page in doc:
-                full_text += page.get_text()
-            return self.extract(full_text)
-        except Exception as e:
-            print(f"PDF Parsing error: {e}")
-            return []
+        if fitz is None:
+            raise RuntimeError("PyMuPDF is not installed.")
 
-if __name__ == "__main__":
-    extractor = SymptomExtractor()
-    print(extractor.extract("The patient came in with a high fever, severe headache, and some joint pain. They also experienced nausea."))
+        doc = fitz.open(stream=pdf_content, filetype="pdf")
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text()
+        return self.extract(full_text)
