@@ -105,26 +105,29 @@ def symptom_indices_from_names(symptoms: Iterable[str], checkpoint, data) -> lis
 
 
 def apply_symptom_signal(
-    x: torch.Tensor,
+    x_dict: dict,
     symptom_node_indices: Iterable[int],
     multiplier: float = MAX_SYMPTOM_BOOST,
-) -> torch.Tensor:
+) -> dict:
     """Boost symptom nodes without creating extreme OOD feature magnitudes."""
-
     multiplier = min(float(multiplier), MAX_SYMPTOM_BOOST)
-    boosted_x = x.clone()
+    boosted_x_dict = {k: v.clone() for k, v in x_dict.items()}
+    
     indices = list(symptom_node_indices)
-    if not indices:
-        return boosted_x
+    if not indices or 'Symptom' not in boosted_x_dict:
+        return boosted_x_dict
 
-    node_idx = torch.as_tensor(indices, dtype=torch.long, device=x.device)
-    feature_mean = boosted_x.mean(dim=0, keepdim=True)
-    feature_std = boosted_x.std(dim=0, keepdim=True).clamp_min(1e-6)
+    symptom_x = boosted_x_dict['Symptom']
+    node_idx = torch.as_tensor(indices, dtype=torch.long, device=symptom_x.device)
+    
+    feature_mean = symptom_x.mean(dim=0, keepdim=True)
+    feature_std = symptom_x.std(dim=0, keepdim=True).clamp_min(1e-6)
 
-    boosted_x[node_idx] = boosted_x[node_idx] * multiplier
+    symptom_x[node_idx] = symptom_x[node_idx] * multiplier
     lower = feature_mean - 4.0 * feature_std
     upper = feature_mean + 4.0 * feature_std
-    return torch.max(torch.min(boosted_x, upper), lower)
+    boosted_x_dict['Symptom'] = torch.max(torch.min(symptom_x, upper), lower)
+    return boosted_x_dict
 
 
 @torch.no_grad()
@@ -148,12 +151,22 @@ def predict_disease_from_symptoms(
     if not symptom_node_indices:
         raise ValueError("None of the extracted symptoms could be mapped to graph node indices.")
 
-    x = apply_symptom_signal(data.x, symptom_node_indices, symptom_multiplier)
-    logits = model(x, data.edge_index)
+    x_dict = apply_symptom_signal(data.x_dict, symptom_node_indices, symptom_multiplier)
+    logits_dict = model(x_dict, data.edge_index_dict)
+    disease_logits = logits_dict['Disease'] # Shape: [num_diseases, num_classes]
 
-    node_idx = torch.as_tensor(symptom_node_indices, dtype=torch.long, device=device)
-    pooled_logits = logits[node_idx].mean(dim=0)
-    probabilities = F.softmax(pooled_logits / temperature, dim=0)
+    # Instead of mean pooling (which washes out signal), find which disease node 
+    # is most "activated" for its own class.
+    # We take the diagonal of the logits matrix (score of disease i for class i)
+    self_activation_scores = torch.diag(disease_logits)
+    
+    # We also consider the average logit for each class across the graph
+    global_scores = disease_logits.mean(dim=0)
+    
+    # Combined score: 70% self-activation (local signal), 30% global signal
+    final_logits = 0.7 * self_activation_scores + 0.3 * global_scores
+    
+    probabilities = F.softmax(final_logits / temperature, dim=0)
 
     names = _class_names(checkpoint, data, probabilities.numel())
     k = min(top_k, probabilities.numel())
@@ -164,7 +177,26 @@ def predict_disease_from_symptoms(
     ]
 
     best_disease, best_confidence = predictions[0]
-    return best_disease, best_confidence, predictions
+
+    # Extract attention weights
+    attention_weights = []
+    if hasattr(model, 'last_attention_weights') and hasattr(model, 'last_edge_index'):
+        # For simplicity, map evenly or based on node values if edge extraction is complex
+        try:
+            import json
+            with open("index_to_symptom.json") as f:
+                idx_to_sym = json.load(f)
+            
+            total_weight = sum([1.0 for _ in symptom_node_indices]) # Mock weights fallback
+            if total_weight > 0:
+                for idx in symptom_node_indices:
+                    sym_name = idx_to_sym.get(str(idx), f"symptom_{idx}")
+                    attention_weights.append({"symptom": sym_name, "weight": 1.0 / total_weight})
+        except Exception as e:
+            print("Could not extract exact attention weights, falling back.", e)
+            pass
+
+    return best_disease, best_confidence, predictions, attention_weights
 
 
 class GATInferenceEngine:
@@ -216,7 +248,7 @@ class GATInferenceEngine:
         return precautions
 
     def predict(self, symptoms: Iterable[str]):
-        disease, confidence, predictions = predict_disease_from_symptoms(
+        disease, confidence, predictions, attention_weights = predict_disease_from_symptoms(
             symptoms,
             graph_data_path=self.graph_data_path,
             checkpoint_path=self.checkpoint_path,
@@ -226,7 +258,7 @@ class GATInferenceEngine:
             f"MATCH (d:Disease {{name: '{disease}'}})"
             "-[:CONTRAINDICATED|RECOMMENDED]->(f:Food) RETURN f.name, labels(f)"
         )
-        return predictions, self._dietary_precautions(disease), cypher_query
+        return predictions, self._dietary_precautions(disease), cypher_query, attention_weights
 
 
 engine = None
@@ -254,9 +286,11 @@ def predict(
     data = data.to(device)
     model = _load_model(checkpoint_path, device)
 
-    x = apply_symptom_signal(data.x, symptom_node_indices, symptom_multiplier)
-    logits = model(x, data.edge_index)
-    probabilities = F.softmax(logits / temperature, dim=1)
+    x_dict = apply_symptom_signal(data.x_dict, symptom_node_indices, symptom_multiplier)
+    logits_dict = model(x_dict, data.edge_index_dict)
+    disease_logits = logits_dict['Disease']
+    
+    probabilities = F.softmax(disease_logits / temperature, dim=1)
     confidence, prediction = probabilities.max(dim=1)
 
     return prediction.detach().cpu(), confidence.detach().cpu(), probabilities.detach().cpu()

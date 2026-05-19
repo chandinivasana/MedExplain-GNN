@@ -57,7 +57,9 @@ class SymptomExtractor:
                         "Disease_disorder",
                         "Diagnostic_procedure",
                     }:
-                        symptoms.add(entity["word"].lower().strip())
+                        word = entity["word"].replace("##", "").lower().strip()
+                        if len(word) > 1:
+                            symptoms.add(word)
             except Exception as exc:
                 print(f"NER inference error: {exc}")
 

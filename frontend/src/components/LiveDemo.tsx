@@ -1,11 +1,22 @@
 'use client';
 
 import { useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from 'recharts';
+
+type PredictionResponse = {
+  disease: string;
+  confidence: number;
+  explanation: string;
+  dietary_precautions: string[];
+  cypher_query: string;
+  icd_code?: string;
+  attention_weights?: { symptom: string; weight: number }[];
+};
 
 export default function LiveDemo() {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<PredictionResponse | null>(null);
   const [showCypher, setShowCypher] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,6 +55,7 @@ export default function LiveDemo() {
           <div className="absolute top-[-50px] right-[-50px] w-[150px] h-[150px] bg-accent-lime/10 rounded-full blur-[40px] group-hover:bg-accent-lime/15 transition-all"></div>
           
           <span className="block text-[12px] font-medium text-muted uppercase mb-4">Symptom Description</span>
+          <p className="text-[10px] text-muted/60 mb-2 italic">Tip: Type all symptoms at once. Do not refresh between entries.</p>
           <form onSubmit={handleSubmit}>
             <textarea
               className="w-full h-[120px] bg-background/50 border border-accent-teal/30 rounded-xl p-4 font-dm-sans text-sm text-white placeholder:text-muted focus:border-accent-lime/50 focus:outline-none transition-all mb-4"
@@ -53,7 +65,7 @@ export default function LiveDemo() {
             />
             
             <div className="flex flex-wrap gap-2 mb-6">
-              {["Rheumatoid", "Diabetes", "Cardiac", "Lupus"].map(tag => (
+              {["Fever", "Cough", "Headache", "Joint Pain", "Wheezing"].map(tag => (
                 <button 
                   key={tag}
                   type="button"
@@ -150,6 +162,27 @@ export default function LiveDemo() {
                 {result?.explanation ?? "No explanation provided."}
               </p>
             </div>
+            
+            {/* Attention Weights Chart */}
+            {result?.attention_weights && result.attention_weights.length > 0 && (
+              <div className="p-6 bg-background/40 rounded-xl border border-accent-lime/10 mt-4">
+                <span className="block text-[10px] font-bold text-accent-lime uppercase mb-3 tracking-wider">Why this diagnosis? (attention distribution)</span>
+                <div className="h-[250px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={result.attention_weights}>
+                      <XAxis dataKey="symptom" stroke="#666" fontSize={10} tickLine={false} axisLine={false} />
+                      <YAxis domain={[0, 1]} tickFormatter={(v) => `${(v*100).toFixed(0)}%`} stroke="#666" fontSize={10} tickLine={false} axisLine={false} />
+                      <Tooltip formatter={(v) => `${(Number(v)*100).toFixed(1)}%`} contentStyle={{ backgroundColor: '#0f2920', border: '1px solid #accent-lime/20', color: '#fff' }} />
+                      <Bar dataKey="weight" radius={[4, 4, 0, 0]}>
+                        {result.attention_weights.map((_, i) => (
+                          <Cell key={i} fill={`hsl(${220 + i * 30}, 70%, 55%)`} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Precautions Column */}

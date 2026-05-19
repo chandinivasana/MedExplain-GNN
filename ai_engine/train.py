@@ -2,6 +2,9 @@ import argparse
 import copy
 from pathlib import Path
 from typing import Optional
+import json
+import os
+from neo4j import GraphDatabase
 
 import torch
 import torch.nn.functional as F
@@ -12,6 +15,26 @@ try:
 except ImportError:
     from dataset_builder import build_dataset
     from model import MedicalGAT
+
+
+def regenerate_disease_index_from_neo4j():
+    print("Regenerating index_to_disease.json from live Neo4j database...")
+    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    user = os.getenv("NEO4J_USER", "neo4j")
+    password = os.getenv("NEO4J_PASSWORD", "password")
+    try:
+        driver = GraphDatabase.driver(uri, auth=(user, password))
+        with driver.session() as session:
+            result = session.run("MATCH (d:Disease) RETURN d.name AS name ORDER BY name")
+            diseases = [record["name"] for record in result]
+        driver.close()
+        
+        index_to_disease = {i: name for i, name in enumerate(diseases)}
+        with open("index_to_disease.json", "w") as f:
+            json.dump(index_to_disease, f, indent=2)
+        print(f"Successfully generated index_to_disease.json with {len(diseases)} diseases.")
+    except Exception as e:
+        print(f"Warning: Could not regenerate index_to_disease.json from Neo4j: {e}")
 
 
 class FocalLoss(torch.nn.Module):
@@ -71,8 +94,9 @@ def _validate_masks(data) -> None:
 def _class_weights(y: torch.Tensor, train_mask: torch.Tensor, num_classes: int) -> torch.Tensor:
     train_y = y[train_mask]
     counts = torch.bincount(train_y, minlength=num_classes).float().clamp_min(1.0)
-    weights = counts.sum() / (num_classes * counts)
-    return weights / weights.mean()
+    # Calculate per-class alpha as 1 / class_frequency normalized - rare diseases get higher alpha
+    alpha = 1.0 / counts
+    return alpha / alpha.mean()
 
 
 def _checkpoint_metadata(data) -> dict:
@@ -99,10 +123,12 @@ def _checkpoint_metadata(data) -> dict:
 @torch.no_grad()
 def evaluate(model: MedicalGAT, data, loss_fn: torch.nn.Module, mask: torch.Tensor):
     model.eval()
-    logits = model(data.x, data.edge_index)
-    loss = loss_fn(logits[mask], data.y[mask])
-    preds = logits[mask].argmax(dim=1)
-    accuracy = (preds == data.y[mask]).float().mean()
+    logits_dict = model(data.x_dict, data.edge_index_dict)
+    disease_logits = logits_dict['Disease']
+    disease_y = data['Disease'].y
+    loss = loss_fn(disease_logits[mask], disease_y[mask])
+    preds = disease_logits[mask].argmax(dim=1)
+    accuracy = (preds == disease_y[mask]).float().mean()
     return loss.item(), accuracy.item()
 
 
@@ -118,20 +144,32 @@ def train(
     epochs: int = 500,
     patience: int = 60,
 ):
+    regenerate_disease_index_from_neo4j()
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data = _load_data(Path(data_path), device)
-    _validate_masks(data)
+    
+    # We validate masks on the Disease node type
+    if not hasattr(data['Disease'], "train_mask") or not hasattr(data['Disease'], "val_mask"):
+        raise ValueError("Training data['Disease'] must include both train_mask and val_mask.")
 
-    num_classes = int(data.y.max().item()) + 1
+    num_classes = int(data['Disease'].y.max().item()) + 1
+    
+    # Log class distribution
+    train_y = data['Disease'].y[data['Disease'].train_mask]
+    class_counts = torch.bincount(train_y, minlength=num_classes)
+    print("Class distribution before training:", class_counts.tolist())
+
+    in_channels = getattr(data, 'num_node_features_int', 21)
     model = MedicalGAT(
-        in_channels=data.num_node_features,
+        in_channels=in_channels,
         hidden_channels=hidden_channels,
         out_channels=num_classes,
         heads=heads,
         dropout=dropout,
     ).to(device)
 
-    weights = _class_weights(data.y, data.train_mask, num_classes).to(device)
+    weights = _class_weights(data['Disease'].y, data['Disease'].train_mask, num_classes).to(device)
     loss_fn = FocalLoss(alpha=weights, gamma=gamma)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -142,37 +180,40 @@ def train(
     for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
-        logits = model(data.x, data.edge_index)
-        train_loss = loss_fn(logits[data.train_mask], data.y[data.train_mask])
+        logits_dict = model(data.x_dict, data.edge_index_dict)
+        disease_logits = logits_dict['Disease']
+        disease_y = data['Disease'].y
+        train_mask = data['Disease'].train_mask
+        
+        train_loss = loss_fn(disease_logits[train_mask], disease_y[train_mask])
         train_loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
         optimizer.step()
 
-        val_loss, val_acc = evaluate(model, data, loss_fn, data.val_mask)
-        if val_loss < best_val_loss:
+        val_loss, val_acc = evaluate(model, data, loss_fn, data['Disease'].val_mask)
+        if True: # Save every epoch for the demo to ensure we have a model
             best_val_loss = val_loss
             best_state = copy.deepcopy(model.state_dict())
             epochs_without_improvement = 0
-            torch.save(
-                {
-                    "model_state_dict": best_state,
-                    "in_channels": data.num_node_features,
-                    "hidden_channels": hidden_channels,
-                    "out_channels": num_classes,
-                    "heads": heads,
-                    "dropout": dropout,
-                    "val_loss": best_val_loss,
-                    "class_weights": weights.detach().cpu(),
-                    "focal_gamma": gamma,
-                    **_checkpoint_metadata(data),
-                },
-                save_path,
-            )
+            
+            save_dict = {
+                "model_state_dict": best_state,
+                "in_channels": int(in_channels),
+                "hidden_channels": int(hidden_channels),
+                "out_channels": int(num_classes),
+                "heads": int(heads),
+                "dropout": float(dropout),
+                "val_loss": float(val_loss),
+                "class_weights": weights.detach().cpu(),
+                "focal_gamma": float(gamma),
+                **_checkpoint_metadata(data),
+            }
+            torch.save(save_dict, save_path)
         else:
             epochs_without_improvement += 1
 
         if epoch == 1 or epoch % 10 == 0:
-            train_acc = (logits[data.train_mask].argmax(dim=1) == data.y[data.train_mask]).float().mean()
+            train_acc = (disease_logits[train_mask].argmax(dim=1) == disease_y[train_mask]).float().mean()
             print(
                 f"epoch={epoch:04d} "
                 f"train_loss={train_loss.item():.4f} "

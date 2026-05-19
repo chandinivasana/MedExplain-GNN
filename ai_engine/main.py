@@ -85,7 +85,7 @@ async def process_sync(input: SymptomInput):
         if not symptoms:
             raise HTTPException(status_code=400, detail="No symptoms detected.")
         
-        predictions, dietary_precautions, cypher_query = app.state.engine.predict(symptoms)
+        predictions, dietary_precautions, cypher_query, attention_weights = app.state.engine.predict(symptoms)
         top_disease, top_conf = predictions[0]
         
         return {
@@ -94,7 +94,8 @@ async def process_sync(input: SymptomInput):
             "explanation": f"Detected symptoms: {', '.join(symptoms)}. The GAT model identified {top_disease} as the most likely diagnosis based on graph attention weights.",
             "predictions": [{"disease": d, "confidence": float(c)} for d, c in predictions],
             "dietary_precautions": dietary_precautions,
-            "cypher_query": cypher_query
+            "cypher_query": cypher_query,
+            "attention_weights": attention_weights
         }
     except Exception as e:
         traceback.print_exc()

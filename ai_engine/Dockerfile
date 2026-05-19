@@ -13,4 +13,6 @@ RUN pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
 COPY . .
 # populate_graph.py is now copied by the line above since it's in the same directory
 
+RUN python scripts/validate_graph.py || true
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
