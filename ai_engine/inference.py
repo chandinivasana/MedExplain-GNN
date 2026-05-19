@@ -155,16 +155,27 @@ def predict_disease_from_symptoms(
     logits_dict = model(x_dict, data.edge_index_dict)
     disease_logits = logits_dict['Disease'] # Shape: [num_diseases, num_classes]
 
-    # Instead of mean pooling (which washes out signal), find which disease node 
-    # is most "activated" for its own class.
-    # We take the diagonal of the logits matrix (score of disease i for class i)
+    # --- PERMANENT BIAS FIX: Graph-Neighbor Filtering ---
+    # We find which diseases are actually neighbors of our symptoms in the current graph
+    edge_index = data.edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
+    symptom_indices_tensor = torch.tensor(symptom_node_indices, device=device)
+    
+    # Get mask of diseases connected to our symptoms
+    # edge_index[0] is Symptom, edge_index[1] is Disease
+    connected_diseases = edge_index[1][torch.isin(edge_index[0], symptom_indices_tensor)].unique()
+    
+    # Create a mask for the final prediction
+    prediction_mask = torch.full((disease_logits.size(0),), -1e9, device=device)
+    if connected_diseases.numel() > 0:
+        prediction_mask[connected_diseases] = 0.0
+    else:
+        # Fallback: if no direct edges, allow everything (don't break) but this shouldn't happen with real data
+        prediction_mask.fill_(0.0)
+
+    # We take the diagonal (self-activation) and apply the graph neighbor mask
+    # This forces the model to choose from the candidates the graph says are valid
     self_activation_scores = torch.diag(disease_logits)
-    
-    # We also consider the average logit for each class across the graph
-    global_scores = disease_logits.mean(dim=0)
-    
-    # Combined score: 70% self-activation (local signal), 30% global signal
-    final_logits = 0.7 * self_activation_scores + 0.3 * global_scores
+    final_logits = self_activation_scores + prediction_mask
     
     probabilities = F.softmax(final_logits / temperature, dim=0)
 
