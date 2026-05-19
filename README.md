@@ -117,38 +117,13 @@ docker compose exec ai-service python evaluate_model.py
 
 ---
 
-## 🚀 Interview Demo Instructions
+##  Project Structure
 
-To showcase the system's full capabilities during an interview, follow these steps to ensure a clean, high-performance environment:
-
-### 1. Launch Environment
-Ensure Docker is running and launch the microservices:
-```bash
-./setup.sh
+```text
+├── ai_engine/          # GAT Model, BioBERT NER, and Inference Logic
+├── backend/            # FastAPI Gateway and Service Orchestration
+├── frontend/           # Next.js UI with Tailwind CSS
+├── database/           # Neo4j Seeding and Migration Scripts
+├── data/               # Source Datasets and Processed Artifacts
+└── k8s/                # Kubernetes Deployment Manifests
 ```
-
-### 2. Scale the Knowledge Graph (Phase 1)
-Populate the database with the expanded 57-disease vocabulary:
-```bash
-docker exec ai-service python scripts/ingest_datasets.py
-```
-
-### 3. Retrain the GNN (MLOps Cycle)
-Rebuild the graph data and train the GAT model to synchronize with the new graph:
-```bash
-docker exec ai-service python dataset_builder.py
-docker exec ai-service python train.py --epochs 100
-```
-
-### 4. Verify & Launch
-Validate the graph-model synchronization and check the frontend:
-```bash
-docker exec ai-service python scripts/validate_graph.py
-# Visit http://localhost:3000
-```
-
-### 🧪 Showcase Examples
-- **Stroke:** "Sudden numbness in arm and trouble speaking."
-- **Meningitis:** "Severe headache, stiff neck, and light sensitivity."
-- **Lupus:** "Joint pain, butterfly rash on face, and fatigue."
-- **Diabetes:** "Excessive thirst, frequent urination, and blurred vision."
