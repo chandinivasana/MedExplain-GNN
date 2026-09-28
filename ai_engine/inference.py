@@ -56,18 +56,14 @@ def _load_checkpoint_metadata(checkpoint_path: str, device: torch.device):
 
 def _load_model(checkpoint_path: str, device: torch.device) -> MedicalGAT:
     checkpoint = _load_checkpoint_metadata(checkpoint_path, device)
-    try:
-        model = MedicalGAT(
-            in_channels=checkpoint.get("in_channels", 768),
-            hidden_channels=checkpoint.get("hidden_channels", 64),
-            out_channels=checkpoint.get("out_channels", 50),
-            heads=checkpoint.get("heads", 1),
-            dropout=checkpoint.get("dropout", 0.0),
-        ).to(device)
-        model.load_state_dict(checkpoint["model_state_dict"])
-    except Exception:
-        # Fallback to default initialization if state dict keys mismatch
-        model = MedicalGAT(num_node_features=768, hidden_channels=64, num_classes=50).to(device)
+    model = MedicalGAT(
+        num_node_features=checkpoint.get("in_channels", 768),
+        hidden_channels=checkpoint.get("hidden_channels", 64),
+        num_classes=checkpoint.get("out_channels", 50),
+        heads=checkpoint.get("heads", 1),
+        dropout=checkpoint.get("dropout", 0.1),
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     return model
 
@@ -166,98 +162,71 @@ def predict_disease_from_symptoms(
     graph_data_path: str = DEFAULT_GRAPH_DATA_PATH,
     checkpoint_path: str = DEFAULT_CHECKPOINT_PATH,
     temperature: float = TEMPERATURE,
-    symptom_multiplier: float = MAX_SYMPTOM_BOOST,
+    symptom_multiplier: float = 50.0,
     top_k: int = 3,
 ):
-    if temperature < 0.5:
-        raise ValueError("temperature below 0.5 makes predictions overconfident.")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint = _load_checkpoint_metadata(checkpoint_path, device)
     data = load_graph_data(graph_data_path, device)
     model = _load_model(checkpoint_path, device)
 
-    symptom_node_indices = symptom_indices_from_names(symptoms, checkpoint, data)
-    if not symptom_node_indices:
+    symptom_mapping = {name.lower(): i for i, name in enumerate(data.symptom_names)}
+    reverse_disease_mapping = {i: name for i, name in enumerate(data.disease_names)}
+
+    active_indices = []
+    active_symptom_names = []
+    for s in symptoms:
+        s_clean = s.lower().replace("_", " ").strip()
+        if s_clean in symptom_mapping:
+            idx = symptom_mapping[s_clean]
+            if idx not in active_indices:
+                active_indices.append(idx)
+                active_symptom_names.append(data.symptom_names[idx])
+
+    if not active_indices:
         raise ValueError("None of the extracted symptoms could be mapped to graph node indices.")
 
-    if hasattr(data, 'x_dict') and hasattr(data, 'edge_index_dict'):
-        x_dict = data.x_dict
-        edge_index_dict = data.edge_index_dict
-        edge_index = edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
-    else:
-        num_symptoms = getattr(data, 'num_symptoms', 95)
-        num_classes = getattr(data, 'num_classes', 50)
-        s_x = data.x[:num_symptoms].clone()
-        d_x = data.x[num_symptoms:num_symptoms + num_classes].clone()
-        x_dict = {'Symptom': s_x, 'Disease': d_x}
-        
-        e = data.edge_index
-        mask = (e[0] < num_symptoms) & (e[1] >= num_symptoms) & (e[1] < num_symptoms + num_classes)
-        s_src = e[0][mask]
-        d_dst = e[1][mask] - num_symptoms
-        edge_index = torch.stack([s_src, d_dst])
-        edge_index_dict = {('Symptom', 'INDICATES', 'Disease'): edge_index}
+    # Apply 50x signal boost to active symptom nodes
+    x = data.x.clone()
+    for idx in active_indices:
+        x[idx] *= symptom_multiplier
 
-    x_dict = apply_symptom_signal(x_dict, symptom_node_indices, symptom_multiplier)
-    logits_dict = model(x_dict, edge_index_dict)
-    disease_logits = logits_dict['Disease'] # Shape: [num_diseases, num_classes]
+    # Forward pass through trained GAT layer with attention extraction
+    embeddings, (edge_index, alpha) = model(x, data.edge_index, return_attention_weights=True)
+    disease_features = embeddings[data.num_symptoms:]
+    query_vector = embeddings[active_indices].mean(dim=0, keepdim=True)
 
-    # --- PERMANENT BIAS FIX: Graph-Neighbor Filtering ---
-    # We find which diseases are actually neighbors of our symptoms in the current graph
-    edge_index = edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
-    symptom_indices_tensor = torch.tensor(symptom_node_indices, device=device)
-    
-    # Get mask of diseases connected to our symptoms
-    # edge_index[0] is Symptom, edge_index[1] is Disease
-    connected_diseases = edge_index[1][torch.isin(edge_index[0], symptom_indices_tensor)].unique()
-    
-    # Create a mask for the final prediction
-    prediction_mask = torch.full((disease_logits.size(0),), -1e9, device=device)
-    if connected_diseases.numel() > 0:
-        prediction_mask[connected_diseases] = 0.0
-    else:
-        # Fallback: if no direct edges, allow everything (don't break) but this shouldn't happen with real data
-        prediction_mask.fill_(0.0)
+    # Latent space cosine similarity
+    sims = F.cosine_similarity(query_vector, disease_features)
+    scale = max(0.01, temperature * 0.05)
+    probs = F.softmax(sims / scale, dim=0)
 
-    # We take the diagonal (self-activation) and apply the graph neighbor mask
-    # This forces the model to choose from the candidates the graph says are valid
-    self_activation_scores = torch.diag(disease_logits)
-    final_logits = self_activation_scores + prediction_mask
-    
-    probabilities = F.softmax(final_logits / temperature, dim=0)
-
-    names = _class_names(checkpoint, data, probabilities.numel())
-    k = min(top_k, probabilities.numel())
-    values, indices = torch.topk(probabilities, k=k)
+    top_k_val = min(top_k, data.num_classes)
+    values, indices = torch.topk(probs, k=top_k_val)
     predictions = [
-        (names[index.item()], float(value.item()))
-        for value, index in zip(values, indices)
+        (reverse_disease_mapping[idx.item()], float(val.item()))
+        for val, idx in zip(values, indices)
     ]
-
     best_disease, best_confidence = predictions[0]
 
-    # Extract attention weights
+    # Extract REAL attention weights computed by GATConv for the active symptoms
+    active_raw_weights = []
+    for idx in active_indices:
+        edge_mask = (edge_index[0] == idx) | (edge_index[1] == idx)
+        if edge_mask.any():
+            avg_attention = alpha[edge_mask].mean().item()
+        else:
+            avg_attention = 0.0
+        active_raw_weights.append(avg_attention)
+
+    total_weight = sum(active_raw_weights)
     attention_weights = []
-    if hasattr(model, 'last_attention_weights') and hasattr(model, 'last_edge_index'):
-        # For simplicity, map evenly or based on node values if edge extraction is complex
-        try:
-            import json
-            json_file = _resolve_file_path("index_to_symptom.json")
-            if json_file.exists():
-                with open(json_file) as f:
-                    idx_to_sym = json.load(f)
-            else:
-                idx_to_sym = {}
-            
-            total_weight = sum([1.0 for _ in symptom_node_indices]) # Mock weights fallback
-            if total_weight > 0:
-                for idx in symptom_node_indices:
-                    sym_name = idx_to_sym.get(str(idx), f"symptom_{idx}")
-                    attention_weights.append({"symptom": sym_name, "weight": 1.0 / total_weight})
-        except Exception as e:
-            print("Could not extract exact attention weights, falling back.", e)
-            pass
+    if total_weight > 0:
+        for sym_name, raw_w in zip(active_symptom_names, active_raw_weights):
+            normalized_w = float(raw_w / total_weight)
+            attention_weights.append({"symptom": sym_name, "weight": normalized_w})
+    else:
+        for sym_name in active_symptom_names:
+            attention_weights.append({"symptom": sym_name, "weight": 1.0 / len(active_symptom_names)})
 
     return best_disease, best_confidence, predictions, attention_weights
 
@@ -297,10 +266,12 @@ class GATInferenceEngine:
                 with self.driver.session() as session:
                     result = session.run(
                         """
-                        MATCH (d:Disease {name: $name})-[:CONTRAINDICATED]->(f:Food)
+                        MATCH (d:Disease)-[:CONTRAINDICATED]->(f:Food)
+                        WHERE toLower(d.name) = toLower($name)
                         RETURN f.name AS food, 'Avoid' AS type
                         UNION
-                        MATCH (d:Disease {name: $name})-[:RECOMMENDED]->(f:Food)
+                        MATCH (d:Disease)-[:RECOMMENDED]->(f:Food)
+                        WHERE toLower(d.name) = toLower($name)
                         RETURN f.name AS food, 'Recommended' AS type
                         """,
                         name=disease,

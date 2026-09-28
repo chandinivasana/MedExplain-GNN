@@ -1,71 +1,80 @@
 from __future__ import annotations
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import HeteroConv, GATConv
-import json
-import os
+from torch_geometric.nn import GATConv
+from torch.nn import Linear
 
 class MedicalGAT(torch.nn.Module):
-    """GAT classifier for disease prediction from symptom graph features using HeteroConv."""
+    """GAT classifier for disease prediction from symptom graph features.
+
+    Canonical architecture matching trained checkpoint best_model.pth:
+      - conv1: GATConv(num_node_features, hidden_channels=64, heads=1, dropout=0.1)
+      - out_layer: Linear(64, num_classes=50)
+    """
 
     def __init__(
         self,
-        in_channels: int | None = None,
-        hidden_channels: int = 256,
-        out_channels: int | None = None,
-        heads: int = 4,
-        dropout: float = 0.35,
         num_node_features: int | None = None,
+        hidden_channels: int = 64,
         num_classes: int | None = None,
+        heads: int = 1,
+        dropout: float = 0.1,
+        in_channels: int | None = None,
+        out_channels: int | None = None,
     ):
         super().__init__()
-        in_channels = in_channels if in_channels is not None else num_node_features
-        
-        if out_channels is None and num_classes is None:
-            try:
-                json_path = os.path.join(os.path.dirname(__file__), "index_to_disease.json")
-                if not os.path.exists(json_path):
-                    json_path = "index_to_disease.json"
-                out_channels = len(json.load(open(json_path)))
-            except Exception as e:
-                out_channels = 6 # fallback
-        else:
-            out_channels = out_channels if out_channels is not None else num_classes
-            
-        if in_channels is None or out_channels is None:
-            raise ValueError("MedicalGAT requires in_channels and out_channels.")
+        num_node_features = num_node_features if num_node_features is not None else in_channels
+        num_classes = num_classes if num_classes is not None else out_channels
 
+        self.num_node_features = num_node_features if num_node_features is not None else 768
+        self.hidden_channels = hidden_channels
+        self.num_classes = num_classes if num_classes is not None else 50
         self.dropout = dropout
-        
-        # Phase 3: Simplified HeteroConv for Demo
-        # We focus on Symptom -> Disease path as it's the primary inference route
-        self.gat1 = GATConv((in_channels, in_channels), hidden_channels, heads=heads, add_self_loops=False)
-        self.gat2 = GATConv((hidden_channels * heads, hidden_channels * heads), out_channels, heads=1, add_self_loops=False)
-        
-        self.classifier = torch.nn.Linear(out_channels, out_channels)
 
-    def forward(self, x_dict: dict, edge_index_dict: dict) -> dict:
-        s_x = x_dict['Symptom']
-        d_x = x_dict['Disease']
-        edge_index = edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
+        self.conv1 = GATConv(self.num_node_features, self.hidden_channels, heads=heads, dropout=self.dropout)
+        self.out_layer = Linear(self.hidden_channels, self.num_classes)
+        self.last_attention_weights = None
+        self.last_edge_index = None
 
-        s_x = F.dropout(s_x, p=self.dropout, training=self.training)
-        d_x = F.dropout(d_x, p=self.dropout, training=self.training)
-        
-        # Layer 1
-        h_d, (edge_idx, alpha) = self.gat1((s_x, d_x), edge_index, return_attention_weights=True)
-        self.last_attention_weights = alpha.detach().cpu()
-        self.last_edge_index = edge_idx.detach().cpu()
-        
-        h_d = F.elu(h_d)
-        h_d = F.dropout(h_d, p=self.dropout, training=self.training)
-        
-        # Layer 2
-        # Use h_d for both src and dst to keep shapes consistent for the second jump
-        out_d = self.gat2((h_d, h_d), torch.stack([torch.arange(h_d.size(0)), torch.arange(h_d.size(0))]).to(h_d.device))
-        out_d = F.elu(out_d)
-        
-        # Final Classification
-        out_d = self.classifier(out_d)
+    def forward(
+        self,
+        x: torch.Tensor | dict,
+        edge_index: torch.Tensor | dict,
+        return_attention_weights: bool = False,
+    ):
+        if isinstance(x, dict):
+            s_x = x.get('Symptom', torch.empty(0))
+            d_x = x.get('Disease', torch.empty(0))
+            x_tensor = torch.cat([s_x, d_x], dim=0) if s_x.numel() and d_x.numel() else (s_x if s_x.numel() else d_x)
             
-        return {'Disease': out_d}
+            if isinstance(edge_index, dict):
+                e = edge_index.get(('Symptom', 'INDICATES', 'Disease'))
+                if e is not None:
+                    edge_tensor = torch.stack([e[0], e[1] + s_x.size(0)])
+                else:
+                    edge_tensor = next(iter(edge_index.values()))
+            else:
+                edge_tensor = edge_index
+        else:
+            x_tensor = x
+            edge_tensor = edge_index
+
+        if return_attention_weights or not self.training:
+            h, (edge_idx, alpha) = self.conv1(x_tensor, edge_tensor, return_attention_weights=True)
+            self.last_attention_weights = alpha.detach().cpu()
+            self.last_edge_index = edge_idx.detach().cpu()
+        else:
+            h = self.conv1(x_tensor, edge_tensor)
+
+        h = F.elu(h)
+
+        if isinstance(x, dict):
+            num_sym = x['Symptom'].size(0) if 'Symptom' in x else 0
+            d_emb = h[num_sym:]
+            out_d = self.out_layer(d_emb)
+            return {'Disease': out_d}
+
+        if return_attention_weights:
+            return h, (self.last_edge_index, self.last_attention_weights)
+
+        return h
