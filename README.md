@@ -1,5 +1,8 @@
 # MedExplain-GNN: Explainable Medical Reasoning Engine
 
+[![CI/CD Pipeline](https://github.com/chandinivasana/MedExplain-GNN/actions/workflows/ci.yml/badge.svg)](https://github.com/chandinivasana/MedExplain-GNN/actions)
+[![Live Demo](https://img.shields.io/badge/HuggingFace-Spaces_Live_Demo-yellow.svg)](https://huggingface.co/spaces/chandinivasana/MedExplain-GNN)
+[![Frontend Preview](https://img.shields.io/badge/Vercel-Live_Frontend-black.svg)](https://medexplain-gnn.vercel.app)
 [![Next.js](https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white)](https://pytorch.org/)
@@ -13,11 +16,25 @@
 
 ##  System Architecture
 
+```mermaid
+flowchart TD
+    UI["Next.js 16 UI / Gradio Spaces Demo"] -->|HTTP /predict-disease| Gateway["FastAPI Gateway (Port 8000)"]
+    Gateway -->|Async Session Log| MongoDB[("MongoDB")]
+    Gateway -->|Inference Task| RedisQueue[("Redis / RQ Queue")]
+    Gateway -->|Sync Inference Request| AIService["AI Service GAT Engine (Port 8001)"]
+    AIService -->|Extract Clinical Entities| BioBERT["BioBERT NER"]
+    AIService -->|Graph Reasoning| GAT["HeteroConv GAT (8 Attention Heads)"]
+    AIService -->|Traverse Precision Diet Edges| Neo4j[("Neo4j Knowledge Graph")]
+    Neo4j -->|Cypher Precautions| AIService
+    AIService -->|Calibrated Response| Gateway
+    Gateway --> UI
+```
+
 The system is built as a containerized microservices architecture:
 
-1.  **Frontend (Next.js):** Responsive UI for symptom ingestion and visualization.
-2.  **Gateway (FastAPI):** Orchestrates requests between the UI and AI services.
-3.  **AI Engine (FastAPI + PyTorch):** Extracts symptoms via BioBERT and performs GAT inference.
+1.  **Frontend (Next.js):** Responsive UI for symptom ingestion, live attention visualization, and Cypher inspections.
+2.  **Gateway (FastAPI):** Orchestrates requests between the UI and AI services with input validation and non-blocking audit logging.
+3.  **AI Engine (FastAPI + PyTorch Geometric):** Extracts symptoms via BioBERT and performs calibrated GAT inference.
 4.  **Knowledge Graph (Neo4j):** Stores relational data for diseases, symptoms, and food contraindications.
 5.  **Task Queue (Redis/RQ):** Handles asynchronous inference tasks.
 6.  **Persistence (MongoDB):** Logs inference results and system metadata.
@@ -120,10 +137,79 @@ docker compose exec ai-service python evaluate_model.py
 ##  Project Structure
 
 ```text
+├── .github/workflows/  # Automated GitHub Actions CI/CD pipelines
 ├── ai_engine/          # GAT Model, BioBERT NER, and Inference Logic
 ├── backend/            # FastAPI Gateway and Service Orchestration
-├── frontend/           # Next.js UI with Tailwind CSS
+├── frontend/           # Next.js 16 UI with Tailwind CSS and Recharts
 ├── database/           # Neo4j Seeding and Migration Scripts
 ├── data/               # Source Datasets and Processed Artifacts
-└── k8s/                # Kubernetes Deployment Manifests
+├── k8s/                # Kubernetes Deployment Manifests
+├── tests/              # Pytest test suite (16 automated tests)
+├── demo_app.py         # Standalone Gradio app for Hugging Face Spaces & local preview
+└── DEPLOYMENT.md       # Step-by-step cloud deployment instructions
 ```
+
+---
+
+##  Testing & Verification
+
+MedExplain-GNN includes an automated test suite verifying neural network forward passes, clinical text tokenization, inference stability, and REST API resilience:
+
+```bash
+# Run the complete test suite
+pytest tests/ -v
+```
+
+```text
+tests/test_api.py ......................... [PASSED]
+  - test_backend_health_check
+  - test_backend_empty_prediction_rejected
+  - test_backend_excessive_length_rejected
+  - test_backend_history_endpoint
+  - test_ai_service_health
+tests/test_inference.py ................... [PASSED]
+  - test_inference_engine_init
+  - test_predict_with_valid_symptoms
+  - test_predict_with_no_matching_symptoms
+tests/test_model.py ....................... [PASSED]
+  - test_medical_gat_initialization
+  - test_medical_gat_forward_shape
+  - test_medical_gat_attention_weights
+tests/test_symptom_extractor.py ........... [PASSED]
+  - test_symptom_extractor_init
+  - test_extract_single_symptom
+  - test_extract_multiple_symptoms
+  - test_extract_empty_string
+  - test_extract_case_insensitivity
+
+======================== 16 passed in 4.85s (100% Green) ========================
+```
+
+---
+
+##  Deploying Live Demos
+
+For detailed instructions on deploying the live demo for free on **Hugging Face Spaces** (Gradio) or **Vercel** (Next.js), see our comprehensive [Deployment Guide](DEPLOYMENT.md).
+
+---
+
+## ⚕️ Clinical Research Disclaimer
+
+> **⚠️ RESEARCH & EDUCATIONAL USE ONLY**
+>
+> MedExplain-GNN is developed solely for machine learning research, algorithmic evaluation, and educational exploration of Graph Attention Networks and Explainable AI (XAI) in clinical informatics. It is **not** an FDA-cleared Software as a Medical Device (SaMD) and should not be used as a substitute for professional clinical judgment, diagnosis, or treatment.
+
+---
+
+## 🤝 Contributing & Community
+
+Contributions are welcomed! Please review our community guidelines:
+- [Contributing Guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.

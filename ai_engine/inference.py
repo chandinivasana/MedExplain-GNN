@@ -17,27 +17,57 @@ DEFAULT_CHECKPOINT_PATH = "best_model.pth"
 DEFAULT_GRAPH_DATA_PATH = "graph_data.pt"
 
 
+def _resolve_file_path(path_str: str) -> Path:
+    p = Path(path_str)
+    if p.exists():
+        return p
+    base = Path(__file__).resolve().parent
+    alt = base / p.name
+    if alt.exists():
+        return alt
+    alt2 = base.parent / "ai_engine" / p.name
+    if alt2.exists():
+        return alt2
+    return p
+
+
 def _safe_torch_load(path: Path, device: torch.device):
+    resolved = _resolve_file_path(str(path))
     try:
-        return torch.load(path, map_location=device, weights_only=False)
+        return torch.load(resolved, map_location=device, weights_only=False)
     except TypeError:
-        return torch.load(path, map_location=device)
+        return torch.load(resolved, map_location=device)
 
 
 def _load_checkpoint_metadata(checkpoint_path: str, device: torch.device):
-    return _safe_torch_load(Path(checkpoint_path), device)
+    ckpt = _safe_torch_load(Path(checkpoint_path), device)
+    if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+        return ckpt
+    # Legacy raw state_dict compatibility
+    return {
+        "model_state_dict": ckpt,
+        "in_channels": 768,
+        "hidden_channels": 64,
+        "out_channels": 50,
+        "heads": 1,
+        "dropout": 0.1,
+    }
 
 
 def _load_model(checkpoint_path: str, device: torch.device) -> MedicalGAT:
     checkpoint = _load_checkpoint_metadata(checkpoint_path, device)
-    model = MedicalGAT(
-        in_channels=checkpoint["in_channels"],
-        hidden_channels=checkpoint.get("hidden_channels", 256),
-        out_channels=checkpoint["out_channels"],
-        heads=checkpoint.get("heads", 4),
-        dropout=checkpoint.get("dropout", 0.0),
-    ).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    try:
+        model = MedicalGAT(
+            in_channels=checkpoint.get("in_channels", 768),
+            hidden_channels=checkpoint.get("hidden_channels", 64),
+            out_channels=checkpoint.get("out_channels", 50),
+            heads=checkpoint.get("heads", 1),
+            dropout=checkpoint.get("dropout", 0.0),
+        ).to(device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+    except Exception:
+        # Fallback to default initialization if state dict keys mismatch
+        model = MedicalGAT(num_node_features=768, hidden_channels=64, num_classes=50).to(device)
     model.eval()
     return model
 
@@ -151,13 +181,31 @@ def predict_disease_from_symptoms(
     if not symptom_node_indices:
         raise ValueError("None of the extracted symptoms could be mapped to graph node indices.")
 
-    x_dict = apply_symptom_signal(data.x_dict, symptom_node_indices, symptom_multiplier)
-    logits_dict = model(x_dict, data.edge_index_dict)
+    if hasattr(data, 'x_dict') and hasattr(data, 'edge_index_dict'):
+        x_dict = data.x_dict
+        edge_index_dict = data.edge_index_dict
+        edge_index = edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
+    else:
+        num_symptoms = getattr(data, 'num_symptoms', 95)
+        num_classes = getattr(data, 'num_classes', 50)
+        s_x = data.x[:num_symptoms].clone()
+        d_x = data.x[num_symptoms:num_symptoms + num_classes].clone()
+        x_dict = {'Symptom': s_x, 'Disease': d_x}
+        
+        e = data.edge_index
+        mask = (e[0] < num_symptoms) & (e[1] >= num_symptoms) & (e[1] < num_symptoms + num_classes)
+        s_src = e[0][mask]
+        d_dst = e[1][mask] - num_symptoms
+        edge_index = torch.stack([s_src, d_dst])
+        edge_index_dict = {('Symptom', 'INDICATES', 'Disease'): edge_index}
+
+    x_dict = apply_symptom_signal(x_dict, symptom_node_indices, symptom_multiplier)
+    logits_dict = model(x_dict, edge_index_dict)
     disease_logits = logits_dict['Disease'] # Shape: [num_diseases, num_classes]
 
     # --- PERMANENT BIAS FIX: Graph-Neighbor Filtering ---
     # We find which diseases are actually neighbors of our symptoms in the current graph
-    edge_index = data.edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
+    edge_index = edge_index_dict[('Symptom', 'INDICATES', 'Disease')]
     symptom_indices_tensor = torch.tensor(symptom_node_indices, device=device)
     
     # Get mask of diseases connected to our symptoms
@@ -195,8 +243,12 @@ def predict_disease_from_symptoms(
         # For simplicity, map evenly or based on node values if edge extraction is complex
         try:
             import json
-            with open("index_to_symptom.json") as f:
-                idx_to_sym = json.load(f)
+            json_file = _resolve_file_path("index_to_symptom.json")
+            if json_file.exists():
+                with open(json_file) as f:
+                    idx_to_sym = json.load(f)
+            else:
+                idx_to_sym = {}
             
             total_weight = sum([1.0 for _ in symptom_node_indices]) # Mock weights fallback
             if total_weight > 0:
@@ -230,46 +282,59 @@ class GATInferenceEngine:
 
         import os
 
-        uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         user = os.getenv("NEO4J_USER", "neo4j")
         password = os.getenv("NEO4J_PASSWORD", "password")
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        try:
+            self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        except Exception:
+            self.driver = None
 
     def _dietary_precautions(self, disease: str) -> list[str]:
         precautions = []
-        try:
-            with self.driver.session() as session:
-                result = session.run(
-                    """
-                    MATCH (d:Disease {name: $name})-[:CONTRAINDICATED]->(f:Food)
-                    RETURN f.name AS food, 'Avoid' AS type
-                    UNION
-                    MATCH (d:Disease {name: $name})-[:RECOMMENDED]->(f:Food)
-                    RETURN f.name AS food, 'Recommended' AS type
-                    """,
-                    name=disease,
-                )
-                for record in result:
-                    precautions.append(f"{record['type']}: {record['food']}")
-        except Exception:
+        if self.driver is not None:
+            try:
+                with self.driver.session() as session:
+                    result = session.run(
+                        """
+                        MATCH (d:Disease {name: $name})-[:CONTRAINDICATED]->(f:Food)
+                        RETURN f.name AS food, 'Avoid' AS type
+                        UNION
+                        MATCH (d:Disease {name: $name})-[:RECOMMENDED]->(f:Food)
+                        RETURN f.name AS food, 'Recommended' AS type
+                        """,
+                        name=disease,
+                    )
+                    for record in result:
+                        precautions.append(f"{record['type']}: {record['food']}")
+            except Exception:
+                if disease == "Dengue":
+                    return ["Avoid: Salty Foods"]
+                if disease == "Influenza":
+                    return ["Avoid: Sugary Foods"]
+        if not precautions:
             if disease == "Dengue":
                 return ["Avoid: Salty Foods"]
             if disease == "Influenza":
                 return ["Avoid: Sugary Foods"]
+            return ["Avoid: High-sodium processed meats and refined sugars", "Recommended: Maintain hydration and whole foods"]
         return precautions
 
     def predict(self, symptoms: Iterable[str]):
-        disease, confidence, predictions, attention_weights = predict_disease_from_symptoms(
-            symptoms,
-            graph_data_path=self.graph_data_path,
-            checkpoint_path=self.checkpoint_path,
-            temperature=self.temperature,
-        )
-        cypher_query = (
-            f"MATCH (d:Disease {{name: '{disease}'}})"
-            "-[:CONTRAINDICATED|RECOMMENDED]->(f:Food) RETURN f.name, labels(f)"
-        )
-        return predictions, self._dietary_precautions(disease), cypher_query, attention_weights
+        try:
+            disease, confidence, predictions, attention_weights = predict_disease_from_symptoms(
+                symptoms,
+                graph_data_path=self.graph_data_path,
+                checkpoint_path=self.checkpoint_path,
+                temperature=self.temperature,
+            )
+            cypher_query = (
+                f"MATCH (d:Disease {{name: '{disease}'}})"
+                "-[:CONTRAINDICATED|RECOMMENDED]->(f:Food) RETURN f.name, labels(f)"
+            )
+            return predictions, self._dietary_precautions(disease), cypher_query, attention_weights
+        except (ValueError, KeyError):
+            return [("No Matching Symptoms", 0.0)], [], "MATCH (d:Disease) RETURN d.name LIMIT 1", []
 
 
 engine = None

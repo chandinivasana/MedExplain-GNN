@@ -46,11 +46,17 @@ class SymptomInput(BaseModel):
     text: str
 
 @app.get("/")
+@app.get("/health")
 async def health_check():
+    q_size = 0
+    try:
+        q_size = len(inference_queue)
+    except Exception:
+        q_size = 0
     return {
         "status": "healthy", 
-        "model_loaded": app.state.engine is not None,
-        "queue_size": len(inference_queue)
+        "model_loaded": getattr(app.state, "engine", None) is not None,
+        "queue_size": q_size
     }
 
 @app.post("/api/diagnose/async")
