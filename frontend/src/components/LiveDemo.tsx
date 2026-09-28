@@ -24,7 +24,8 @@ export default function LiveDemo() {
     setLoading(true);
     setShowCypher(false);
     try {
-      const response = await fetch('http://localhost:8000/predict-disease', {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${API_BASE}/predict-disease`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
