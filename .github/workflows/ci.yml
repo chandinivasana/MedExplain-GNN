@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r ai_engine/requirements.txt
           pip install -r backend/requirements.txt
-          pip install pytest httpx gradio
+          pip install "httpx>=0.27.0" pytest gradio
 
       - name: Run Pytest Test Suite
         run: |
